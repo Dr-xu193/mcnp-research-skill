@@ -7,7 +7,7 @@ description: Use this skill for MCNP5 efficiency calibration workflows, includin
 
 ## When to use
 
-Use this skill when working on MCNP5 detector efficiency calibration workflows in this repository, especially tasks involving input deck generation, MPI run planning, F8 tally CSV extraction, spectra comparison plots, GEB fitting from CSV or SPE data, and Origin OPJ export planning.
+Use this skill when working on MCNP5 detector efficiency calibration workflows in this repository, especially tasks involving input deck generation, MPI run planning, F8 tally CSV extraction, spectra comparison plots, GEB fitting from CSV or SPE data, diagnostics, batch manifests, run validation, and Origin OPJ export planning.
 
 Do not use this skill for MCP server work, GUI rewrites, unrelated Python refactors, or changes to `auto.py` and `legacy/auto.py`.
 
@@ -20,19 +20,23 @@ Do not use this skill for MCP server work, GUI rewrites, unrelated Python refact
 - Analyze CSV spectra for peak/FWHM/efficiency and fit GEB parameters.
 - Fit GEB parameters from SPE files.
 - Plan or confirm Origin OPJ exports from `*_Data.csv` files.
+- Diagnose local configuration with `doctor`.
+- Expand a distance range into reproducible batch subruns with `batch-run`.
+- Validate completed runs from `manifest.json`.
 
 ## Preferred workflow
 
 1. inspect config
-2. generate inputs with dry-run
-3. run MPI with dry-run
-4. only after user confirmation run MPI with --execute --confirm-mpi
-5. extract CSV
-6. plot spectra
-7. run GEB CSV analysis if needed
-8. fit GEB from SPE files if needed
-9. Origin export only with dry-run first
-10. real Origin export only with --execute --confirm-origin
+2. run doctor
+3. generate inputs with dry-run
+4. run MPI with dry-run
+5. only after user confirmation run MPI with --execute --confirm-mpi
+6. extract CSV
+7. plot spectra
+8. run GEB CSV analysis if needed
+9. fit GEB from SPE files if needed
+10. Origin export only with dry-run first
+11. real Origin export only with --execute --confirm-origin
 
 ## CLI commands
 
@@ -42,6 +46,9 @@ python -m mcnp_research_skill.cli run-mpi --config configs/example.pipeline.yaml
 python -m mcnp_research_skill.cli extract-csv --config configs/example.pipeline.yaml --dry-run
 python -m mcnp_research_skill.cli plot-spectra --config configs/example.pipeline.yaml --dry-run
 python -m mcnp_research_skill.cli run-core-pipeline --config configs/example.pipeline.yaml --dry-run
+python -m mcnp_research_skill.cli doctor --config configs/example.pipeline.yaml
+python -m mcnp_research_skill.cli batch-run --base-file D:/codex/agent/A.txt --output-dir D:/MCNP/work/run_663 --reference-point crystal_center --nps 1000000 --distance-start 16.3 --distance-end 36.3 --distance-step 5 --custom-energy-kev 663.52 --geb 0.2 0.3 0.6 --mpi-command "mpirun -np 1 mcnp5mpi.exe" --dry-run
+python -m mcnp_research_skill.cli validate-run --run-dir D:/MCNP/work/run_663
 python -m mcnp_research_skill.cli fit-geb-from-spe --spe file1.spe --spe file2.spe
 python -m mcnp_research_skill.cli origin-export --target-dir D:/MCNP/work --dry-run
 ```
@@ -62,6 +69,7 @@ python -m mcnp_research_skill.cli origin-export --target-dir D:/MCNP/work --exec
 - Keep core functions returning structured dicts with `ok`, `warnings`, and `errors`.
 - Run `python -m compileall -q mcnp_research_skill tests` and `python -m pytest -q` after changes.
 - Preserve `auto.py` and `legacy/auto.py` exactly unless the user explicitly requests otherwise.
+- Keep local smoke files such as `A.txt` untracked.
 
 ## High-risk operations
 
@@ -88,6 +96,7 @@ Generated artifacts are normally:
 - Renamed MCNP output `.txt` files from confirmed MPI runs.
 - `*_Data.csv` files from tally extraction.
 - PNG spectra plots.
+- `manifest.json` for confirmed batch runs.
 - GEB analysis dictionaries and report text.
 - Planned or confirmed Origin `.opj` exports.
 
@@ -95,6 +104,8 @@ Generated artifacts are normally:
 
 - If a CLI command fails before running work, inspect the JSON `errors` field first.
 - If config parsing fails, check `configs/example.pipeline.yaml` for required keys and scalar/list syntax.
+- If batch planning fails, run `doctor` and confirm `base_file`, `output_dir`, distance range, and `mpi_command`.
+- If `validate-run` fails, inspect missing file checks and manifest `errors`.
 - If MPI planning finds no files, confirm the work directory contains numeric `.txt` input decks such as `1.txt`.
 - If plotting is skipped, confirm `*_Data.csv` files exist in the configured output directory.
 - If SPE fitting returns `ok=false`, check whether at least three valid peak FWHM points were extracted.

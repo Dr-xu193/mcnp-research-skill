@@ -1,0 +1,14 @@
+base_file: "D:/codex/agent/A.txt"
+output_dir: "D:/MCNP/work/run_663"
+reference_point: "crystal_center"
+nps: "1000000"
+distance_start: 16.3
+distance_end: 36.3
+distance_step: 5
+custom_energy_kev: 663.52
+geb_enabled: true
+geb_params:
+  a: 0.2
+  b: 0.3
+  c: 0.6
+mpi_command: "mpirun -np 1 mcnp5mpi.exe"
