@@ -200,8 +200,13 @@ def main(argv: list[str] | None = None) -> dict[str, Any]:
         return {"ok": False, "warnings": [], "errors": [str(exc)]}
 
 
-if __name__ == "__main__":
-    payload = main()
+def entrypoint(argv: list[str] | None = None) -> int:
+    """Console-script entry point that emits ASCII-safe JSON."""
+    payload = main(argv)
     sys.stdout.write(json.dumps(payload, ensure_ascii=True, indent=2))
     sys.stdout.write("\n")
-    raise SystemExit(0 if payload.get("ok") else 1)
+    return 0 if payload.get("ok") else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(entrypoint())

@@ -1,0 +1,29 @@
+# Python caches and test artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local smoke inputs and generated MCNP/Origin outputs
+/A.txt
+*_Data.csv
+*.opj
+runt*
+mesch*
+comou*
+mdata*
+i.txt
+o.txt
+
+# Local work directories
+.worktrees/
+worktrees/
+tmp/
+temp/
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
