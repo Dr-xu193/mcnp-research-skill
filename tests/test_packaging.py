@@ -23,12 +23,17 @@ def test_pyproject_declares_runtime_dependencies_and_console_script() -> None:
     scripts = data["project"]["scripts"]
     assert scripts["mcnp-research"] == "mcnp_research_skill.cli:entrypoint"
 
+    package_find = data["tool"]["setuptools"]["packages"]["find"]
+    assert package_find["include"] == ["mcnp_research_skill*"]
+    assert "legacy*" in package_find["exclude"]
+    assert "configs*" in package_find["exclude"]
+
 
 def test_repository_hygiene_files_ignore_local_artifacts() -> None:
     gitignore = (PROJECT_ROOT / ".gitignore").read_text(encoding="utf-8")
     gitattributes = (PROJECT_ROOT / ".gitattributes").read_text(encoding="utf-8")
 
-    for pattern in ["__pycache__/", ".pytest_cache/", "/A.txt", "*.opj", "runt*"]:
+    for pattern in ["__pycache__/", ".pytest_cache/", "*.egg-info/", "/A.txt", "*.opj", "runt*"]:
         assert pattern in gitignore
 
     assert "*.py text eol=lf" in gitattributes
