@@ -1,0 +1,9 @@
+[project]
+name = "mcnp-research-skill"
+version = "0.1.0"
+description = "Refactored MCNP research utilities migrated from legacy auto.py."
+requires-python = ">=3.10"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
