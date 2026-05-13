@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from .batch import run_batch_pipeline
 from .diagnostics import run_doctor
 from .mcnp_input.generator import generate_mcnp_inputs
 from .mcnp_output.tally_extractor import extract_tally_csvs
@@ -127,6 +128,29 @@ def run_command(args: argparse.Namespace) -> dict[str, Any]:
             confirm=bool(args.confirm_origin),
         )
 
+    if args.command == "batch-run":
+        geb_params = None
+        if args.geb is not None:
+            geb_params = {"a": args.geb[0], "b": args.geb[1], "c": args.geb[2]}
+        config = {
+            "base_file": str(args.base_file),
+            "output_dir": str(args.output_dir),
+            "reference_point": str(args.reference_point),
+            "nps": str(args.nps),
+            "distance_start": float(args.distance_start),
+            "distance_end": float(args.distance_end),
+            "distance_step": float(args.distance_step),
+            "custom_energy_kev": float(args.custom_energy_kev),
+            "geb_enabled": args.geb is not None,
+            "geb_params": geb_params,
+            "mpi_command": str(args.mpi_command),
+        }
+        return run_batch_pipeline(
+            config,
+            dry_run=bool(args.dry_run),
+            confirm_mpi=bool(args.confirm_mpi),
+        )
+
     config = load_config(args.config)
     dry_run = bool(args.dry_run)
 
@@ -195,6 +219,21 @@ def build_parser() -> argparse.ArgumentParser:
     origin_parser.add_argument("--dry-run", action="store_true", dest="dry_run", default=True)
     origin_parser.add_argument("--execute", action="store_false", dest="dry_run")
     origin_parser.add_argument("--confirm-origin", action="store_true", default=False)
+
+    batch_parser = subparsers.add_parser("batch-run")
+    batch_parser.add_argument("--base-file", required=True)
+    batch_parser.add_argument("--output-dir", required=True)
+    batch_parser.add_argument("--reference-point", required=True)
+    batch_parser.add_argument("--nps", required=True)
+    batch_parser.add_argument("--distance-start", required=True, type=float)
+    batch_parser.add_argument("--distance-end", required=True, type=float)
+    batch_parser.add_argument("--distance-step", required=True, type=float)
+    batch_parser.add_argument("--custom-energy-kev", required=True, type=float)
+    batch_parser.add_argument("--geb", nargs=3, type=float)
+    batch_parser.add_argument("--mpi-command", required=True)
+    batch_parser.add_argument("--dry-run", action="store_true", dest="dry_run", default=True)
+    batch_parser.add_argument("--execute", action="store_false", dest="dry_run")
+    batch_parser.add_argument("--confirm-mpi", action="store_true", default=False)
 
     return parser
 
