@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from .diagnostics import run_doctor
 from .mcnp_input.generator import generate_mcnp_inputs
 from .mcnp_output.tally_extractor import extract_tally_csvs
 from .mcnp_run.mpi_runner import run_mpi_batch
@@ -129,6 +130,9 @@ def run_command(args: argparse.Namespace) -> dict[str, Any]:
     config = load_config(args.config)
     dry_run = bool(args.dry_run)
 
+    if args.command == "doctor":
+        return run_doctor(config)
+
     if args.command == "generate-inputs":
         return generate_mcnp_inputs(**_input_kwargs(config, dry_run))
 
@@ -168,6 +172,10 @@ def run_command(args: argparse.Namespace) -> dict[str, Any]:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m mcnp_research_skill.cli")
     subparsers = parser.add_subparsers(dest="command", required=True)
+
+    doctor_parser = subparsers.add_parser("doctor")
+    doctor_parser.add_argument("--config", required=True)
+    doctor_parser.set_defaults(dry_run=True)
 
     for command in ["generate-inputs", "run-mpi", "extract-csv", "plot-spectra", "run-core-pipeline"]:
         subparser = subparsers.add_parser(command)
