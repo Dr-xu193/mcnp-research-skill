@@ -8,6 +8,7 @@ __pycache__/
 # Local smoke inputs and generated MCNP/Origin outputs
 /A.txt
 *_Data.csv
+!tests/fixtures/golden/*_Data.csv
 *.opj
 runt*
 mesch*

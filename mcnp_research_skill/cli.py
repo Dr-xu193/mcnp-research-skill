@@ -15,6 +15,7 @@ from .mcnp_output.tally_extractor import extract_tally_csvs
 from .mcnp_run.mpi_runner import run_mpi_batch
 from .geb.spe import fit_geb_from_spe_files
 from .origin.origin_exporter import export_origin_projects
+from .manifest import validate_run
 from .pipeline import run_core_pipeline
 from .spectra.plotter import plot_spectra
 
@@ -151,6 +152,9 @@ def run_command(args: argparse.Namespace) -> dict[str, Any]:
             confirm_mpi=bool(args.confirm_mpi),
         )
 
+    if args.command == "validate-run":
+        return validate_run(run_dir=args.run_dir, manifest_path=args.manifest)
+
     config = load_config(args.config)
     dry_run = bool(args.dry_run)
 
@@ -234,6 +238,10 @@ def build_parser() -> argparse.ArgumentParser:
     batch_parser.add_argument("--dry-run", action="store_true", dest="dry_run", default=True)
     batch_parser.add_argument("--execute", action="store_false", dest="dry_run")
     batch_parser.add_argument("--confirm-mpi", action="store_true", default=False)
+
+    validate_parser = subparsers.add_parser("validate-run")
+    validate_parser.add_argument("--run-dir")
+    validate_parser.add_argument("--manifest")
 
     return parser
 
