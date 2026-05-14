@@ -178,6 +178,9 @@ def run_command(args: argparse.Namespace) -> dict[str, Any]:
             mpi_config_path=getattr(args, "mpi_config", None),
             execute=not bool(getattr(args, "dry_run", True)),
             confirm_mpi=bool(getattr(args, "confirm_mpi", False)),
+            mcnp_outputs=getattr(args, "mcnp_outputs", None),
+            csv_dir=getattr(args, "csv_dir", None),
+            plot_dir=getattr(args, "plot_dir", None),
         )
 
     if args.command == "run-workflow":
@@ -199,6 +202,9 @@ def run_command(args: argparse.Namespace) -> dict[str, Any]:
             mpi_command=mpi_cmd,
             execute=not bool(getattr(args, "dry_run", True)),
             confirm_mpi=bool(getattr(args, "confirm_mpi", False)),
+            mcnp_output_path=getattr(args, "mcnp_output", None),
+            csv_output_path=getattr(args, "csv_output", None),
+            plot_output_path=getattr(args, "plot_output", None),
         )
 
     if args.command == "postprocess-workflow":
@@ -408,6 +414,9 @@ def build_parser() -> argparse.ArgumentParser:
     runwf_parser.add_argument("--dry-run", action="store_true", dest="dry_run", default=True)
     runwf_parser.add_argument("--execute", action="store_false", dest="dry_run")
     runwf_parser.add_argument("--confirm-mpi", action="store_true", default=False)
+    runwf_parser.add_argument("--mcnp-output", default=None, dest="mcnp_output")
+    runwf_parser.add_argument("--csv-output", default=None, dest="csv_output")
+    runwf_parser.add_argument("--plot-output", default=None, dest="plot_output")
 
     batchwf_parser = subparsers.add_parser("batch-workflow")
     batchwf_parser.add_argument("--input-dir", required=True, dest="input_dir")
@@ -421,6 +430,9 @@ def build_parser() -> argparse.ArgumentParser:
     batchwf_parser.add_argument("--dry-run", action="store_true", dest="dry_run", default=True)
     batchwf_parser.add_argument("--execute", action="store_false", dest="dry_run")
     batchwf_parser.add_argument("--confirm-mpi", action="store_true", default=False)
+    batchwf_parser.add_argument("--mcnp-outputs", nargs="*", default=None, dest="mcnp_outputs")
+    batchwf_parser.add_argument("--csv-dir", default=None, dest="csv_dir")
+    batchwf_parser.add_argument("--plot-dir", default=None, dest="plot_dir")
 
     pp_parser = subparsers.add_parser("postprocess-workflow")
     pp_parser.add_argument("--input", required=True, dest="input")

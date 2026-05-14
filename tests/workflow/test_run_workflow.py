@@ -322,3 +322,104 @@ def test_cli_execute_mock_runner_does_not_run_mcnp(tmp_path: Path):
         e.get("code") in ("MISSING_CONFIRM_MPI", "MISSING_MPI_CONFIG")
         for e in result.get("errors", []) if isinstance(e, dict)
     )
+
+
+# ---------------------------------------------------------------------------
+# postprocess wiring
+# ---------------------------------------------------------------------------
+
+
+def test_dry_run_postprocess_csv_not_executed(tmp_path):
+    inp = _write_input(tmp_path / "A.txt", F8_DECK)
+    wd = tmp_path / "work"
+    result = run_workflow(input_path=inp, work_dir=wd, workflow_mode="run-only",
+                          postprocess="csv", execute=False)
+    assert result["ok"] is True
+    assert result["postprocess_status"] == "planned_not_executed"
+    assert "csv" not in result.get("artifacts", {})
+
+
+def test_execute_success_calls_postprocess(tmp_path, monkeypatch):
+    inp = _write_input(tmp_path / "A.txt", F8_DECK)
+    wd = tmp_path / "work"
+    wd.mkdir(parents=True, exist_ok=True)
+    from mcnp_research_skill.workflow.prepare import prepare_workflow
+    prepare_workflow(input_path=inp, work_dir=wd, workflow_mode="run-only")
+
+    runner_calls = []
+    def fake_runner(**kw):
+        runner_calls.append(kw)
+        return {"ok": True, "commands": [], "completed": [{"output_path": str(wd / "A.out")}], "failed": [], "warnings": [], "errors": []}
+    monkeypatch.setattr("mcnp_research_skill.workflow.run.run_mpi_batch", fake_runner)
+
+    pp_calls = []
+    def fake_pp(**kw):
+        pp_calls.append(kw)
+        return {"ok": True, "artifacts": {"csv": str(wd / "spectrum.csv")}, "blocked": [], "errors": [], "warnings": []}
+    monkeypatch.setattr("mcnp_research_skill.workflow.run.postprocess_workflow", fake_pp)
+
+    result = run_workflow(input_path=inp, work_dir=wd, workflow_mode="run-only",
+                          postprocess="csv", execute=True, confirm_mpi=True,
+                          mpi_command="echo")
+    assert result["ok"] is True
+    assert result["postprocess_status"] == "completed"
+    assert len(pp_calls) == 1
+    # mcnp_output_path from runner completed
+    assert str(pp_calls[0]["mcnp_output_path"]) == str(wd / "A.out")
+
+
+def test_execute_success_postprocess_missing_output(tmp_path, monkeypatch):
+    inp = _write_input(tmp_path / "A.txt", F8_DECK)
+    wd = tmp_path / "work"
+    wd.mkdir(parents=True, exist_ok=True)
+    from mcnp_research_skill.workflow.prepare import prepare_workflow
+    prepare_workflow(input_path=inp, work_dir=wd, workflow_mode="run-only")
+
+    def fake_runner(**kw):
+        return {"ok": True, "commands": [], "completed": [], "failed": [], "warnings": [], "errors": []}
+    monkeypatch.setattr("mcnp_research_skill.workflow.run.run_mpi_batch", fake_runner)
+
+    # Explicitly pass a non-existent output path
+    result = run_workflow(input_path=inp, work_dir=wd, workflow_mode="run-only",
+                          postprocess="csv", execute=True, confirm_mpi=True,
+                          mpi_command="echo", mcnp_output_path=str(wd / "nope.txt"))
+    assert result["ok"] is False
+    assert result["postprocess_status"] == "failed"
+    assert any(
+        e.get("code") == "MISSING_MCNP_OUTPUT"
+        for e in result.get("errors", []) if isinstance(e, dict)
+    )
+
+
+def test_execute_runner_failed_skips_postprocess(tmp_path, monkeypatch):
+    inp = _write_input(tmp_path / "A.txt", F8_DECK)
+    wd = tmp_path / "work"
+    wd.mkdir(parents=True, exist_ok=True)
+    from mcnp_research_skill.workflow.prepare import prepare_workflow
+    prepare_workflow(input_path=inp, work_dir=wd, workflow_mode="run-only")
+
+    def fake_runner(**kw):
+        return {"ok": False, "errors": ["MPI crashed"], "warnings": [], "completed": [], "failed": []}
+    monkeypatch.setattr("mcnp_research_skill.workflow.run.run_mpi_batch", fake_runner)
+
+    pp_called = []
+    def fake_pp(**kw): pp_called.append(1); return {"ok": True}
+    monkeypatch.setattr("mcnp_research_skill.workflow.run.postprocess_workflow", fake_pp)
+
+    result = run_workflow(input_path=inp, work_dir=wd, workflow_mode="run-only",
+                          postprocess="csv", execute=True, confirm_mpi=True,
+                          mpi_command="echo")
+    assert result["ok"] is False
+    assert len(pp_called) == 0
+
+
+def test_cli_run_workflow_dry_run_postprocess_planned(tmp_path):
+    inp = _write_input(tmp_path / "A.txt", F8_DECK)
+    wd = tmp_path / "work"
+    r = subprocess.run([sys.executable, "-m", "mcnp_research_skill.cli", "run-workflow",
+        "--input", str(inp), "--work-dir", str(wd), "--workflow-mode", "run-only",
+        "--postprocess", "csv", "--dry-run"],
+        cwd=Path.cwd(), text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    assert r.returncode == 0
+    p = json.loads(r.stdout)
+    assert p["postprocess_status"] == "planned_not_executed"

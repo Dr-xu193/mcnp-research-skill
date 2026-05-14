@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from ..mcnp_run.mpi_runner import run_mpi_batch
+from .postprocess import postprocess_workflow
 from .prepare import prepare_workflow
 
 
@@ -52,8 +53,11 @@ def batch_workflow(
     mpi_config_path: str | Path | None = None,
     execute: bool = False,
     confirm_mpi: bool = False,
+    mcnp_outputs: list[str] | None = None,
+    csv_dir: str | Path | None = None,
+    plot_dir: str | Path | None = None,
 ) -> dict[str, Any]:
-    """Scan *input_dir* for ``*.txt`` files, prepare each, and optionally run."""
+    """Scan *input_dir* for ``*.txt`` files, prepare each, optionally run + postprocess."""
 
     in_dir = Path(input_dir)
     wd = Path(work_dir)
@@ -250,4 +254,57 @@ def batch_workflow(
         for k in ("commands", "completed", "failed")
         if k in runner_result
     }
+
+    # ---- postprocess ----
+    if postprocess == "none" or result.get("postprocess_status") == "planned_not_executed":
+        return result
+
+    csv_base = Path(csv_dir) if csv_dir else wd / "postprocess_csv"
+    plot_base = Path(plot_dir) if plot_dir else wd / "postprocess_plots"
+    csv_base.mkdir(parents=True, exist_ok=True)
+    plot_base.mkdir(parents=True, exist_ok=True)
+
+    pp_ok = 0
+    pp_fail = 0
+    completed_runner = runner_result.get("completed", [])
+
+    for i, entry in enumerate(per_file):
+        if not entry["ok"]:
+            continue
+        # Resolve MCNP output: explicit list > runner completed > None
+        mcnp_out = None
+        if mcnp_outputs and i < len(mcnp_outputs):
+            mcnp_out = mcnp_outputs[i]
+        elif i < len(completed_runner):
+            mcnp_out = completed_runner[i].get("output_path")
+
+        stem = Path(entry["input_file"]).stem
+        pp = postprocess_workflow(
+            input_path=Path(entry["work_dir"]) / Path(entry["input_file"]).name,
+            work_dir=entry["work_dir"],
+            mode=postprocess,
+            mcnp_output_path=mcnp_out,
+            csv_output_path=csv_base / f"{stem}.csv",
+            plot_output_path=plot_base / f"{stem}.png",
+        )
+        entry["postprocess"] = {
+            "ok": pp.get("ok"),
+            "artifacts": pp.get("artifacts", {}),
+            "blocked": pp.get("blocked", []),
+            "errors": pp.get("errors", []),
+        }
+        if pp.get("ok"):
+            pp_ok += 1
+        else:
+            pp_fail += 1
+            entry["errors"].extend(pp.get("errors", []))
+            entry["blocked"].extend(pp.get("blocked", []))
+
+    result["postprocess_summary"] = {"succeeded": pp_ok, "failed": pp_fail}
+    if pp_fail > 0 and pp_ok > 0:
+        result["warnings"].append(f"Postprocess: {pp_ok} succeeded, {pp_fail} failed")
+    elif pp_fail > 0 and pp_ok == 0:
+        result["ok"] = False
+        result["errors"].append({"code": "POSTPROCESS_ALL_FAILED", "message": "Postprocess failed for all files"})
+
     return result

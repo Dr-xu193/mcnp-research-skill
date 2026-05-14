@@ -181,3 +181,68 @@ def test_cli_batch_mock_runner(tmp_path,monkeypatch):
     r=main(["batch-workflow","--input-dir",str(tmp_path),"--work-dir",str(tmp_path/"w"),
             "--workflow-mode","run-only","--execute","--confirm-mpi","--mpi-config",str(cfg)])
     assert r["ok"]==True; assert r["executed"]==True
+
+
+# ---- postprocess wiring ----
+
+def test_batch_dry_run_postprocess_planned(tmp_path):
+    (tmp_path/"A.txt").write_text(F8,encoding="utf-8")
+    r=batch_workflow(input_dir=tmp_path,work_dir=tmp_path/"w",workflow_mode="run-only",postprocess="csv",execute=False)
+    assert r["ok"]; assert r.get("postprocess_status","planned_not_executed")=="planned_not_executed"
+
+def test_batch_execute_calls_postprocess_per_file(tmp_path,monkeypatch):
+    (tmp_path/"A.txt").write_text(F8,encoding="utf-8")
+    (tmp_path/"B.txt").write_text(F8,encoding="utf-8")
+    cfg=tmp_path/"cfg.yaml"; cfg.write_text('mpi_command: "echo"\n',encoding="utf-8")
+    def fake_runner(**kw):
+        return {"ok":True,"commands":[],"completed":[{"output_path":str(tmp_path/"A.out")},{"output_path":str(tmp_path/"B.out")}],"failed":[],"warnings":[],"errors":[]}
+    monkeypatch.setattr("mcnp_research_skill.workflow.batch.run_mpi_batch",fake_runner)
+    pp_calls=[]
+    def fake_pp(**kw):
+        pp_calls.append(kw)
+        return {"ok":True,"artifacts":{"csv":"c.csv"},"blocked":[],"errors":[],"warnings":[]}
+    monkeypatch.setattr("mcnp_research_skill.workflow.batch.postprocess_workflow",fake_pp)
+    r=batch_workflow(input_dir=tmp_path,work_dir=tmp_path/"w",workflow_mode="run-only",postprocess="csv",
+                      execute=True,confirm_mpi=True,mpi_config_path=str(cfg))
+    assert r["ok"]; assert len(pp_calls)==2
+    assert pp_calls[0]["mcnp_output_path"]==str(tmp_path/"A.out")
+
+def test_batch_partial_postprocess_failure(tmp_path,monkeypatch):
+    (tmp_path/"A.txt").write_text(F8,encoding="utf-8")
+    (tmp_path/"B.txt").write_text(F8,encoding="utf-8")
+    cfg=tmp_path/"cfg.yaml"; cfg.write_text('mpi_command: "echo"\n',encoding="utf-8")
+    def fake_runner(**kw):
+        return {"ok":True,"commands":[],"completed":[{"output_path":"a.out"},{"output_path":"b.out"}],"failed":[],"warnings":[],"errors":[]}
+    monkeypatch.setattr("mcnp_research_skill.workflow.batch.run_mpi_batch",fake_runner)
+    call_count=[0]
+    def fake_pp(**kw):
+        call_count[0]+=1
+        ok=call_count[0]==1  # first succeeds, second fails
+        return {"ok":ok,"artifacts":{},"blocked":[],"errors":[] if ok else ["pp fail"],"warnings":[]}
+    monkeypatch.setattr("mcnp_research_skill.workflow.batch.postprocess_workflow",fake_pp)
+    r=batch_workflow(input_dir=tmp_path,work_dir=tmp_path/"w",workflow_mode="run-only",postprocess="csv",
+                      execute=True,confirm_mpi=True,mpi_config_path=str(cfg))
+    assert r["ok"]  # partial failure still ok
+    assert r["postprocess_summary"]["succeeded"]==1; assert r["postprocess_summary"]["failed"]==1
+
+def test_batch_all_postprocess_failure(tmp_path,monkeypatch):
+    (tmp_path/"A.txt").write_text(F8,encoding="utf-8")
+    cfg=tmp_path/"cfg.yaml"; cfg.write_text('mpi_command: "echo"\n',encoding="utf-8")
+    def fake_runner(**kw):
+        return {"ok":True,"commands":[],"completed":[{"output_path":"a.out"}],"failed":[],"warnings":[],"errors":[]}
+    monkeypatch.setattr("mcnp_research_skill.workflow.batch.run_mpi_batch",fake_runner)
+    def fake_pp(**kw): return {"ok":False,"artifacts":{},"blocked":[],"errors":["pp fail"],"warnings":[]}
+    monkeypatch.setattr("mcnp_research_skill.workflow.batch.postprocess_workflow",fake_pp)
+    r=batch_workflow(input_dir=tmp_path,work_dir=tmp_path/"w",workflow_mode="run-only",postprocess="csv",
+                      execute=True,confirm_mpi=True,mpi_config_path=str(cfg))
+    assert r["ok"]==False
+    assert any(e.get("code")=="POSTPROCESS_ALL_FAILED" for e in r["errors"] if isinstance(e,dict))
+
+def test_cli_batch_mcnp_outputs_arg(tmp_path):
+    (tmp_path/"A.txt").write_text(F8,encoding="utf-8")
+    r=subprocess.run([sys.executable,"-m","mcnp_research_skill.cli","batch-workflow",
+        "--input-dir",str(tmp_path),"--work-dir",str(tmp_path/"w"),
+        "--workflow-mode","run-only","--postprocess","csv","--dry-run",
+        "--mcnp-outputs","a.out","b.out"],
+        cwd=Path.cwd(),text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+    assert r.returncode==0; p=json.loads(r.stdout); assert p["ok"]

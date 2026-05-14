@@ -1,16 +1,16 @@
 """Workflow run layer.
 
-Chains prepare_workflow → optional run-mpi execution without
-re-implementing MPI logic.
+Chains prepare_workflow → optional run-mpi execution → optional
+F8 postprocess, reusing Phase 3H ``postprocess_workflow``.
 """
 
 from __future__ import annotations
 
-import copy
 from pathlib import Path
 from typing import Any
 
 from ..mcnp_run.mpi_runner import run_mpi_batch
+from .postprocess import postprocess_workflow
 from .prepare import prepare_workflow
 
 
@@ -25,8 +25,11 @@ def run_workflow(
     mpi_command: str | None = None,
     execute: bool = False,
     confirm_mpi: bool = False,
+    mcnp_output_path: str | Path | None = None,
+    csv_output_path: str | Path | None = None,
+    plot_output_path: str | Path | None = None,
 ) -> dict[str, Any]:
-    """Inspect → plan → patch/copy → (optionally) run MCNP."""
+    """Inspect → plan → patch/copy → (optionally) run MCNP → postprocess."""
 
     result: dict[str, Any] = {
         "ok": False,
@@ -136,4 +139,39 @@ def run_workflow(
         if k in runner_result
     }
     result["warnings"].extend(runner_result.get("warnings", []))
+
+    # ---- postprocess ----
+    if postprocess == "none":
+        return result
+
+    # Resolve MCNP output path: explicit > runner summary > missing
+    resolved_output = mcnp_output_path
+    if resolved_output is None:
+        completed = runner_result.get("completed", [])
+        if completed:
+            resolved_output = completed[0].get("output_path")
+
+    pp = postprocess_workflow(
+        input_path=prepared_path,
+        work_dir=work_path,
+        mode=postprocess,
+        mcnp_output_path=resolved_output,
+        csv_output_path=csv_output_path,
+        plot_output_path=plot_output_path,
+    )
+    result["postprocess_result"] = pp
+    result["artifacts"]["csv"] = pp.get("artifacts", {}).get("csv")
+    result["artifacts"]["plot"] = pp.get("artifacts", {}).get("plot")
+    result["artifacts"]["postprocess_manifest_json"] = pp.get("artifacts", {}).get("postprocess_manifest_json")
+
+    if not pp.get("ok"):
+        result["ok"] = False
+        result["postprocess_status"] = "failed"
+        for e in pp.get("errors", []):
+            result["errors"].append(e if isinstance(e, dict) else str(e))
+        for b in pp.get("blocked", []):
+            result["blocked"].append(b if isinstance(b, dict) else str(b))
+        return result
+
+    result["postprocess_status"] = "completed"
     return result
