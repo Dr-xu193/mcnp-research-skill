@@ -382,6 +382,110 @@ def run_point_sweep(
     return result
 
 
+def prepare_disk_sweep(
+    *,
+    input_path: str | Path,
+    work_dir: str | Path,
+    distances: list[float] | None = None,
+    start: float | None = None,
+    stop: float | None = None,
+    step: float | None = None,
+    axis: str = "z",
+    reference_position: tuple[float, float, float] | list[float] = (0, 0, 0),
+    direction: int | float = 1,
+    source_energy: float | str,
+    source_radius: float | str,
+    source_particle: str | int | None = None,
+    source_ext: float | str = 0,
+    source_card_id: int | str | None = None,
+    nps: str | int | float | None = None,
+    postprocess: str = "none",
+) -> dict[str, Any]:
+    """Generate a distance sweep of disk_tr1 prepared decks."""
+
+    errors: list[dict] = []
+    wd = Path(work_dir)
+    in_path = Path(input_path)
+
+    # axis / reference / direction validation
+    if axis not in VALID_AXES:
+        errors.append({"code": "INVALID_SWEEP_AXIS", "message": f"Invalid axis '{axis}'"})
+    try:
+        ref_pos = [float(v) for v in reference_position]
+        if len(ref_pos) != 3:
+            errors.append({"code": "INVALID_REFERENCE_POSITION", "message": f"Must have 3 values, got {len(ref_pos)}"})
+    except (TypeError, ValueError):
+        errors.append({"code": "INVALID_REFERENCE_POSITION", "message": str(reference_position)})
+
+    try:
+        energy = float(source_energy)
+        if energy <= 0:
+            errors.append({"code": "MISSING_SOURCE_ENERGY", "message": "source_energy must be positive"})
+    except (TypeError, ValueError):
+        errors.append({"code": "MISSING_SOURCE_ENERGY", "message": str(source_energy)})
+
+    try:
+        rad = float(source_radius)
+        if rad <= 0:
+            errors.append({"code": "MISSING_SOURCE_RADIUS", "message": "source_radius must be positive"})
+    except (TypeError, ValueError):
+        errors.append({"code": "MISSING_SOURCE_RADIUS", "message": str(source_radius)})
+
+    dir_val = float(direction)
+    dists, dist_errs = _expand_distances(distances, start, stop, step)
+    if dist_errs:
+        errors.extend(dist_errs)
+    if dists is None:
+        errors.append({"code": "INVALID_SWEEP_RANGE", "message": "No distances specified"})
+    if errors:
+        return {"ok": False, "schema_version": "1.0", "input_path": str(in_path), "work_dir": str(wd),
+                "errors": errors, "warnings": []}
+
+    if not in_path.exists():
+        return {"ok": False, "schema_version": "1.0", "input_path": str(in_path), "work_dir": str(wd),
+                "errors": [{"code": "INPUT_FILE_NOT_FOUND", "message": f"File does not exist: {input_path}"}], "warnings": []}
+
+    wd.mkdir(parents=True, exist_ok=True)
+    items: list[dict] = []; prepared = 0; failed = 0; warnings: list[str] = []
+
+    for d in dists:
+        pos = _compute_position(ref_pos, axis, dir_val, d)
+        label = _distance_label(d)
+        subdir = wd / label
+        prep = prepare_workflow(
+            input_path=in_path, work_dir=subdir,
+            workflow_mode="patch-and-run", source_strategy="disk_tr1",
+            source_position=pos, source_energy=energy, source_radius=rad,
+            source_particle=source_particle, source_ext=source_ext, source_card_id=source_card_id,
+            nps=nps, postprocess=postprocess,
+        )
+        item_errors = prep.get("errors", [])
+        normalised = [e if isinstance(e, dict) else {"code": "PREPARE_FAILED", "message": str(e)} for e in item_errors]
+        entry = {"distance": d, "source_position": [float(v) for v in pos], "work_dir": str(subdir),
+                 "prepared_input_path": prep.get("prepared_input_path"), "ok": prep.get("ok", False),
+                 "blocked": prep.get("blocked", []), "errors": normalised, "warnings": prep.get("warnings", [])}
+        items.append(entry)
+        if entry["ok"]: prepared += 1
+        else: failed += 1
+        warnings.extend(entry.get("warnings", []))
+
+    all_ok = failed == 0
+    result: dict[str, Any] = {"ok": all_ok or prepared > 0, "schema_version": "1.0", "input_path": str(in_path),
+        "work_dir": str(wd), "source_strategy": "disk_tr1",
+        "axis": axis, "reference_position": [float(v) for v in ref_pos], "direction": dir_val,
+        "distances": dists, "prepared_count": prepared, "failed_count": failed,
+        "items": items, "artifacts": {}, "warnings": warnings, "errors": []}
+    if not all_ok and prepared == 0:
+        result["ok"] = False; result["errors"].append({"code": "SWEEP_ALL_FAILED", "message": "All distance points failed"})
+    manifest_path = wd / "disk_sweep_manifest.json"
+    try:
+        manifest_path.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        result["artifacts"]["disk_sweep_manifest_json"] = str(manifest_path)
+    except OSError:
+        pass
+    return result
+
+
 def _write_sweep_manifest(wd: Path, data: dict, name: str) -> None:
     try:
         path = wd / name

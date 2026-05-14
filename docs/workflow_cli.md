@@ -12,6 +12,7 @@
 | `batch-workflow` | Batch prepare/run for all *.txt decks in a directory | **Yes (if --execute)** |
 | `postprocess-workflow` | Extract F8 CSV / plot from an existing MCNP output file | No |
 | `prepare-point-sweep` | Generate point-source distance sweep decks | No |
+| `prepare-disk-sweep` | Generate disk_tr1 distance sweep decks | No |
 | `run-point-sweep` | Sweep → optionally run MCNP → optionally F8 postprocess | **Yes (if --execute)** |
 
 ## Current Boundaries
@@ -72,7 +73,29 @@ python -m mcnp_research_skill.cli prepare-point-sweep `
   --nps 1e7
 ```
 
-### 5. Point-source sweep + dry-run
+### 5. Disk-source sweep prepare only (no MCNP run)
+
+```powershell
+python -m mcnp_research_skill.cli prepare-disk-sweep `
+  --input A.txt `
+  --work-dir runs/disk_sweep `
+  --start 10 --stop 25 --step 5 `
+  --axis z `
+  --reference-position 0 0 0 `
+  --direction 1 `
+  --source-energy 0.662 `
+  --source-radius 0.15 `
+  --nps 1e7
+```
+
+> prepare-disk-sweep generates disk_tr1 prepared decks at each distance.
+> It does **not** run MCNP, extract CSV, or plot.  Reference positions,
+> axes, and directions are pure mathematical transforms — no NaI
+> geometry or crystal-front-surface assumptions are baked in.
+
+---
+
+### 6. Point-source sweep + dry-run
 
 ```powershell
 python -m mcnp_research_skill.cli run-point-sweep `

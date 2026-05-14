@@ -2,7 +2,7 @@
 from __future__ import annotations
 import json, subprocess, sys
 from pathlib import Path
-from mcnp_research_skill.workflow.sweep import prepare_point_sweep, run_point_sweep
+from mcnp_research_skill.workflow.sweep import prepare_disk_sweep, prepare_point_sweep, run_point_sweep
 
 def deck(*lines): return "\n".join(lines) + "\n"
 F8 = deck("test","sdef old source","f8:p,e 1","nps 100000")
@@ -253,3 +253,67 @@ def test_cli_run_sweep_invalid_range(tmp_path):
         cwd=Path.cwd(),text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
     assert r.returncode!=0; p=json.loads(r.stdout); assert p["ok"]==False
     assert any(e.get("code")=="INVALID_SWEEP_RANGE" for e in p["errors"] if isinstance(e,dict))
+
+
+# ---- prepare_disk_sweep ----
+
+def test_prepare_disk_sweep_distances(tmp_path):
+    inp = tmp_path/"A.txt"; inp.write_text("f8:p,e 1\nsdef old\nnps 100000\n", encoding="utf-8")
+    r = prepare_disk_sweep(input_path=inp, work_dir=tmp_path/"w", distances=[10, 20], source_energy=0.662, source_radius=0.15)
+    assert r["ok"]; assert r["prepared_count"]==2
+
+def test_prepare_disk_sweep_start_stop_step(tmp_path):
+    inp = tmp_path/"A.txt"; inp.write_text("f8:p,e 1\nsdef old\nnps 100\n", encoding="utf-8")
+    r = prepare_disk_sweep(input_path=inp, work_dir=tmp_path/"w", start=10, stop=25, step=5, source_energy=0.662, source_radius=0.15)
+    assert r["ok"]; assert r["distances"]==[10,15,20,25]
+
+def test_prepare_disk_sweep_generates_disk_tr1_cards(tmp_path):
+    inp = tmp_path/"A.txt"; inp.write_text("f8:p,e 1\nsdef old\nnps 100000\n", encoding="utf-8")
+    r = prepare_disk_sweep(input_path=inp, work_dir=tmp_path/"w", distances=[10], source_energy=0.662, source_radius=0.15)
+    text = Path(r["items"][0]["prepared_input_path"]).read_text(encoding="utf-8")
+    assert "sdef pos=0 0 0 rad=" in text; assert "tr=" in text; assert "si" in text; assert "sp" in text
+
+def test_prepare_disk_sweep_auto_card_id(tmp_path):
+    inp = tmp_path/"A.txt"
+    inp.write_text("f8:p,e 1\nsdef old\nsi1 0 0.15\nsp1 -21 1\nTR1 0 0 -16\nnps 100\n", encoding="utf-8")
+    r = prepare_disk_sweep(input_path=inp, work_dir=tmp_path/"w", distances=[10], source_energy=0.662, source_radius=0.15)
+    text = Path(r["items"][0]["prepared_input_path"]).read_text(encoding="utf-8")
+    assert "tr2" in text or "tr3" in text
+
+def test_prepare_disk_sweep_missing_radius(tmp_path):
+    r = prepare_disk_sweep(input_path=Path("."), work_dir=Path("w"), distances=[10], source_energy=0.662, source_radius="")
+    assert r["ok"]==False
+    assert any(e.get("code")=="MISSING_SOURCE_RADIUS" for e in r["errors"] if isinstance(e,dict))
+
+def test_prepare_disk_sweep_card_id_conflict(tmp_path):
+    inp = tmp_path/"A.txt"; inp.write_text("tr7 1 2 3\nf8:p,e 1\nnps 100\n", encoding="utf-8")
+    r = prepare_disk_sweep(input_path=inp, work_dir=tmp_path/"w", distances=[10], source_energy=0.662, source_radius=0.15, source_card_id=7)
+    assert r["ok"] or any(item["ok"]==False for item in r["items"])
+
+def test_prepare_disk_sweep_with_nps(tmp_path):
+    inp = tmp_path/"A.txt"; inp.write_text("f8:p,e 1\nnps 100000\n", encoding="utf-8")
+    r = prepare_disk_sweep(input_path=inp, work_dir=tmp_path/"w", distances=[10], source_energy=0.662, source_radius=0.15, nps="1e7")
+    text = Path(r["items"][0]["prepared_input_path"]).read_text(encoding="utf-8")
+    assert "nps 10000000" in text
+
+def test_prepare_disk_sweep_no_runner(tmp_path):
+    inp = tmp_path/"A.txt"; inp.write_text("f8:p,e 1\nsdef old\nnps 100\n", encoding="utf-8")
+    r = prepare_disk_sweep(input_path=inp, work_dir=tmp_path/"w", distances=[10], source_energy=0.662, source_radius=0.15)
+    assert r["ok"]
+
+# CLI
+def test_cli_prepare_disk_sweep_ok(tmp_path):
+    inp = tmp_path/"A.txt"; inp.write_text("f8:p,e 1\nsdef old\nnps 100\n", encoding="utf-8")
+    r = subprocess.run([sys.executable,"-m","mcnp_research_skill.cli","prepare-disk-sweep",
+        "--input",str(inp),"--work-dir",str(tmp_path/"w"),"--distances","10","20",
+        "--source-energy","0.662","--source-radius","0.15"],
+        cwd=Path.cwd(),text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+    assert r.returncode==0; p=json.loads(r.stdout); assert p["ok"]; assert p["prepared_count"]==2
+
+def test_cli_prepare_disk_sweep_missing_radius(tmp_path):
+    inp = tmp_path/"A.txt"; inp.write_text("f8:p,e 1\nnps 100\n", encoding="utf-8")
+    r = subprocess.run([sys.executable,"-m","mcnp_research_skill.cli","prepare-disk-sweep",
+        "--input",str(inp),"--work-dir",str(tmp_path/"w"),"--distances","10",
+        "--source-energy","0.662","--source-radius","-1"],
+        cwd=Path.cwd(),text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+    p=json.loads(r.stdout); assert p["ok"]==False

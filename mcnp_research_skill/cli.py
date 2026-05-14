@@ -18,7 +18,7 @@ from .workflow.batch import batch_workflow
 from .workflow.postprocess import postprocess_workflow
 from .workflow.prepare import prepare_workflow
 from .workflow.run import run_workflow
-from .workflow.sweep import prepare_point_sweep, run_point_sweep
+from .workflow.sweep import prepare_disk_sweep, prepare_point_sweep, run_point_sweep
 from .mcnp_input.generator import generate_mcnp_inputs
 from .mcnp_output.tally_extractor import extract_tally_csvs
 from .mcnp_run.mpi_runner import run_mpi_batch
@@ -252,6 +252,19 @@ def run_command(args: argparse.Namespace) -> dict[str, Any]:
             plot_dir=getattr(args, "plot_dir", None),
         )
 
+    if args.command == "prepare-disk-sweep":
+        return prepare_disk_sweep(
+            input_path=args.input, work_dir=args.work_dir,
+            distances=getattr(args, "distances", None),
+            start=getattr(args, "start", None), stop=getattr(args, "stop", None), step=getattr(args, "step", None),
+            axis=getattr(args, "axis", "z"), reference_position=getattr(args, "reference_position", (0, 0, 0)),
+            direction=getattr(args, "direction", 1),
+            source_energy=args.source_energy, source_radius=args.source_radius,
+            source_particle=getattr(args, "source_particle", None),
+            source_ext=getattr(args, "source_ext", 0), source_card_id=getattr(args, "source_card_id", None),
+            nps=getattr(args, "nps", None), postprocess=getattr(args, "postprocess", "none"),
+        )
+
     if args.command == "prepare-point-sweep":
         return prepare_point_sweep(
             input_path=args.input,
@@ -476,6 +489,24 @@ def build_parser() -> argparse.ArgumentParser:
     prep_parser.add_argument("--source-radius", type=float, default=None, dest="source_radius")
     prep_parser.add_argument("--source-ext", type=float, default=0, dest="source_ext")
     prep_parser.add_argument("--source-card-id", type=int, default=None, dest="source_card_id")
+
+    dsw_parser = subparsers.add_parser("prepare-disk-sweep")
+    dsw_parser.add_argument("--input", required=True, dest="input")
+    dsw_parser.add_argument("--work-dir", required=True, dest="work_dir")
+    dsw_parser.add_argument("--distances", nargs="*", type=float, default=None, dest="distances")
+    dsw_parser.add_argument("--start", type=float, default=None, dest="start")
+    dsw_parser.add_argument("--stop", type=float, default=None, dest="stop")
+    dsw_parser.add_argument("--step", type=float, default=None, dest="step")
+    dsw_parser.add_argument("--axis", default="z", dest="axis")
+    dsw_parser.add_argument("--reference-position", nargs=3, type=float, default=(0, 0, 0), dest="reference_position")
+    dsw_parser.add_argument("--direction", type=float, default=1, dest="direction")
+    dsw_parser.add_argument("--source-energy", type=float, required=True, dest="source_energy")
+    dsw_parser.add_argument("--source-radius", type=float, required=True, dest="source_radius")
+    dsw_parser.add_argument("--source-particle", default=None, dest="source_particle")
+    dsw_parser.add_argument("--source-ext", type=float, default=0, dest="source_ext")
+    dsw_parser.add_argument("--source-card-id", type=int, default=None, dest="source_card_id")
+    dsw_parser.add_argument("--nps", default=None, dest="nps")
+    dsw_parser.add_argument("--postprocess", default="none", dest="postprocess")
 
     sweep_parser = subparsers.add_parser("prepare-point-sweep")
     sweep_parser.add_argument("--input", required=True, dest="input")
