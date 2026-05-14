@@ -12,6 +12,7 @@ from .batch import run_batch_pipeline
 from .config.profile import write_default_profiles
 from .diagnostics import run_doctor
 from .mcnp_input.inspection import inspect_deck_file
+from .workflow.planner import plan_workflow
 from .mcnp_input.generator import generate_mcnp_inputs
 from .mcnp_output.tally_extractor import extract_tally_csvs
 from .mcnp_run.mpi_runner import run_mpi_batch
@@ -128,6 +129,18 @@ def run_command(args: argparse.Namespace) -> dict[str, Any]:
 
     if args.command == "inspect-deck":
         return inspect_deck_file(args.input)
+
+    if args.command == "plan-workflow":
+        inspection = inspect_deck_file(args.input)
+        if not inspection.get("ok"):
+            return inspection
+        return plan_workflow(
+            inspection,
+            workflow_mode=args.workflow_mode,
+            source_strategy=getattr(args, "source_strategy", None),
+            postprocess=getattr(args, "postprocess", "none"),
+            requested_nps=getattr(args, "nps", None),
+        )
 
     if args.command == "fit-geb-from-spe":
         kwargs_spe: dict[str, Any] = {"spe_files": args.spe_files}
@@ -287,6 +300,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     inspect_parser = subparsers.add_parser("inspect-deck")
     inspect_parser.add_argument("--input", required=True, dest="input")
+
+    plan_parser = subparsers.add_parser("plan-workflow")
+    plan_parser.add_argument("--input", required=True, dest="input")
+    plan_parser.add_argument("--workflow-mode", required=True, dest="workflow_mode")
+    plan_parser.add_argument("--source-strategy", default=None, dest="source_strategy")
+    plan_parser.add_argument("--postprocess", default="none", dest="postprocess")
+    plan_parser.add_argument("--nps", default=None, dest="nps")
 
     spe_parser = subparsers.add_parser("fit-geb-from-spe")
     spe_parser.add_argument("--spe", action="append", required=True, dest="spe_files")
