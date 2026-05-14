@@ -12,6 +12,7 @@ from .batch import run_batch_pipeline
 from .config.profile import write_default_profiles
 from .diagnostics import run_doctor
 from .mcnp_input.inspection import inspect_deck_file
+from .mcnp_input.patching import patch_deck_file
 from .workflow.planner import plan_workflow
 from .mcnp_input.generator import generate_mcnp_inputs
 from .mcnp_output.tally_extractor import extract_tally_csvs
@@ -141,6 +142,16 @@ def run_command(args: argparse.Namespace) -> dict[str, Any]:
             postprocess=getattr(args, "postprocess", "none"),
             requested_nps=getattr(args, "nps", None),
         )
+
+    if args.command == "patch-deck":
+        result = patch_deck_file(
+            args.input, args.output,
+            nps=getattr(args, "nps", None),
+            source_strategy=getattr(args, "source_strategy", "preserve_existing_source"),
+        )
+        # Don't leak full deck text to stdout
+        result.pop("text", None)
+        return result
 
     if args.command == "fit-geb-from-spe":
         kwargs_spe: dict[str, Any] = {"spe_files": args.spe_files}
@@ -307,6 +318,12 @@ def build_parser() -> argparse.ArgumentParser:
     plan_parser.add_argument("--source-strategy", default=None, dest="source_strategy")
     plan_parser.add_argument("--postprocess", default="none", dest="postprocess")
     plan_parser.add_argument("--nps", default=None, dest="nps")
+
+    patch_parser = subparsers.add_parser("patch-deck")
+    patch_parser.add_argument("--input", required=True, dest="input")
+    patch_parser.add_argument("--output", required=True, dest="output")
+    patch_parser.add_argument("--nps", default=None, dest="nps")
+    patch_parser.add_argument("--source-strategy", default="preserve_existing_source", dest="source_strategy")
 
     spe_parser = subparsers.add_parser("fit-geb-from-spe")
     spe_parser.add_argument("--spe", action="append", required=True, dest="spe_files")
