@@ -15,6 +15,7 @@ from .mcnp_input.inspection import inspect_deck_file
 from .mcnp_input.patching import patch_deck_file
 from .workflow.planner import plan_workflow
 from .workflow.prepare import prepare_workflow
+from .workflow.run import run_workflow
 from .mcnp_input.generator import generate_mcnp_inputs
 from .mcnp_output.tally_extractor import extract_tally_csvs
 from .mcnp_run.mpi_runner import run_mpi_batch
@@ -161,6 +162,27 @@ def run_command(args: argparse.Namespace) -> dict[str, Any]:
             source_strategy=getattr(args, "source_strategy", None),
             postprocess=getattr(args, "postprocess", "none"),
             nps=getattr(args, "nps", None),
+        )
+
+    if args.command == "run-workflow":
+        mpi_cfg = getattr(args, "mpi_config", None)
+        mpi_cmd: str | None = None
+        if mpi_cfg is not None and not getattr(args, "dry_run", True):
+            try:
+                cfg = load_config(str(mpi_cfg))
+                mpi_cmd = str(cfg.get("mpi_command", ""))
+            except Exception as exc:
+                return {"ok": False, "errors": [str(exc)], "warnings": []}
+        return run_workflow(
+            input_path=args.input,
+            work_dir=args.work_dir,
+            workflow_mode=args.workflow_mode,
+            source_strategy=getattr(args, "source_strategy", None),
+            postprocess=getattr(args, "postprocess", "none"),
+            nps=getattr(args, "nps", None),
+            mpi_command=mpi_cmd,
+            execute=not bool(getattr(args, "dry_run", True)),
+            confirm_mpi=bool(getattr(args, "confirm_mpi", False)),
         )
 
     if args.command == "fit-geb-from-spe":
@@ -348,6 +370,18 @@ def build_parser() -> argparse.ArgumentParser:
     prep_parser.add_argument("--source-strategy", default=None, dest="source_strategy")
     prep_parser.add_argument("--postprocess", default="none", dest="postprocess")
     prep_parser.add_argument("--nps", default=None, dest="nps")
+
+    runwf_parser = subparsers.add_parser("run-workflow")
+    runwf_parser.add_argument("--input", required=True, dest="input")
+    runwf_parser.add_argument("--work-dir", required=True, dest="work_dir")
+    runwf_parser.add_argument("--workflow-mode", required=True, dest="workflow_mode")
+    runwf_parser.add_argument("--source-strategy", default=None, dest="source_strategy")
+    runwf_parser.add_argument("--postprocess", default="none", dest="postprocess")
+    runwf_parser.add_argument("--nps", default=None, dest="nps")
+    runwf_parser.add_argument("--mpi-config", default=None, dest="mpi_config")
+    runwf_parser.add_argument("--dry-run", action="store_true", dest="dry_run", default=True)
+    runwf_parser.add_argument("--execute", action="store_false", dest="dry_run")
+    runwf_parser.add_argument("--confirm-mpi", action="store_true", default=False)
 
     spe_parser = subparsers.add_parser("fit-geb-from-spe")
     spe_parser.add_argument("--spe", action="append", required=True, dest="spe_files")
