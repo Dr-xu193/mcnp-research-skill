@@ -15,6 +15,7 @@ from .mcnp_input.inspection import inspect_deck_file
 from .mcnp_input.patching import patch_deck_file
 from .workflow.planner import plan_workflow
 from .workflow.batch import batch_workflow
+from .workflow.postprocess import postprocess_workflow
 from .workflow.prepare import prepare_workflow
 from .workflow.run import run_workflow
 from .mcnp_input.generator import generate_mcnp_inputs
@@ -198,6 +199,16 @@ def run_command(args: argparse.Namespace) -> dict[str, Any]:
             mpi_command=mpi_cmd,
             execute=not bool(getattr(args, "dry_run", True)),
             confirm_mpi=bool(getattr(args, "confirm_mpi", False)),
+        )
+
+    if args.command == "postprocess-workflow":
+        return postprocess_workflow(
+            input_path=args.input,
+            work_dir=args.work_dir,
+            mode=args.mode,
+            mcnp_output_path=getattr(args, "mcnp_output", None),
+            csv_output_path=getattr(args, "csv_output", None),
+            plot_output_path=getattr(args, "plot_output", None),
         )
 
     if args.command == "fit-geb-from-spe":
@@ -410,6 +421,14 @@ def build_parser() -> argparse.ArgumentParser:
     batchwf_parser.add_argument("--dry-run", action="store_true", dest="dry_run", default=True)
     batchwf_parser.add_argument("--execute", action="store_false", dest="dry_run")
     batchwf_parser.add_argument("--confirm-mpi", action="store_true", default=False)
+
+    pp_parser = subparsers.add_parser("postprocess-workflow")
+    pp_parser.add_argument("--input", required=True, dest="input")
+    pp_parser.add_argument("--work-dir", required=True, dest="work_dir")
+    pp_parser.add_argument("--mode", default="csv", dest="mode")
+    pp_parser.add_argument("--mcnp-output", default=None, dest="mcnp_output")
+    pp_parser.add_argument("--csv-output", default=None, dest="csv_output")
+    pp_parser.add_argument("--plot-output", default=None, dest="plot_output")
 
     spe_parser = subparsers.add_parser("fit-geb-from-spe")
     spe_parser.add_argument("--spe", action="append", required=True, dest="spe_files")
