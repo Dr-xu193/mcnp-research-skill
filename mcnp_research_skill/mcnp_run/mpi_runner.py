@@ -186,6 +186,7 @@ def run_mpi_batch(
     confirm: bool = False,
     cleanup_temp: bool = True,
     planned_input_files: list[dict[str, Any]] | None = None,
+    input_files: list[str] | None = None,
 ) -> dict[str, Any]:
     """Run numeric MCNP input files through an MPI command.
 
@@ -210,15 +211,21 @@ def run_mpi_batch(
         result["errors"].append(f"target_dir does not exist or is not a directory: {target_dir}")
         return result
 
-    try:
-        files_to_run = _numeric_input_files(target_path)
-    except OSError as exc:
-        result["errors"].append(f"Failed to list target_dir: {exc}")
-        return result
+    if input_files is not None:
+        files_to_run = [target_path / f for f in input_files if (target_path / f).exists() and (target_path / f).is_file()]
+        if not files_to_run:
+            result["warnings"].append("None of the specified input_files were found in target_dir")
+            return result
+    else:
+        try:
+            files_to_run = _numeric_input_files(target_path)
+        except OSError as exc:
+            result["errors"].append(f"Failed to list target_dir: {exc}")
+            return result
 
-    if not files_to_run:
-        result["warnings"].append("No numeric .txt input files were found")
-        return result
+        if not files_to_run:
+            result["warnings"].append("No numeric .txt input files were found")
+            return result
 
     planned, warnings = _build_plan(target_path, mpi_command, files_to_run)
     result["planned"] = planned

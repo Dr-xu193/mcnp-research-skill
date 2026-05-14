@@ -244,6 +244,7 @@ def run_command(args: argparse.Namespace) -> dict[str, Any]:
             mpi_command=str(config["mpi_command"]),
             dry_run=dry_run,
             confirm=bool(args.confirm_mpi),
+            input_files=getattr(args, "input_files", None),
         )
 
     if args.command == "extract-csv":
@@ -311,13 +312,18 @@ def build_parser() -> argparse.ArgumentParser:
     pipeline_parser.add_argument("--profile-path", default=None)
     pipeline_parser.add_argument("--profile-name", default=None)
 
-    for command in ["run-mpi", "extract-csv", "plot-spectra"]:
+    mpi_parser = subparsers.add_parser("run-mpi")
+    mpi_parser.add_argument("--config", required=True)
+    mpi_parser.add_argument("--dry-run", action="store_true", dest="dry_run", default=True)
+    mpi_parser.add_argument("--execute", action="store_false", dest="dry_run")
+    mpi_parser.add_argument("--confirm-mpi", action="store_true", default=False)
+    mpi_parser.add_argument("--input-files", nargs="*", default=None, dest="input_files")
+
+    for command in ["extract-csv", "plot-spectra"]:
         subparser = subparsers.add_parser(command)
         subparser.add_argument("--config", required=True)
         subparser.add_argument("--dry-run", action="store_true", dest="dry_run", default=True)
         subparser.add_argument("--execute", action="store_false", dest="dry_run")
-        if command in {"run-mpi"}:
-            subparser.add_argument("--confirm-mpi", action="store_true", default=False)
 
     inspect_parser = subparsers.add_parser("inspect-deck")
     inspect_parser.add_argument("--input", required=True, dest="input")

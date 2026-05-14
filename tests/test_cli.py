@@ -716,3 +716,34 @@ def test_generate_inputs_bad_nuclide_energy_returns_json_error(tmp_path: Path):
     payload = json.loads(completed.stdout)
     assert payload["ok"] is False
     assert any("Bad" in e for e in payload["errors"])
+
+
+# ---------------------------------------------------------------------------
+# run-mpi --input-files
+# ---------------------------------------------------------------------------
+
+
+def test_run_mpi_cli_input_files(tmp_path: Path):
+    (tmp_path / "A.txt").write_text(
+        "f8:p,e 1\nnps 100\nc Meta_ID:Cs-137 (662 keV) | Dist:20cm | Ref:几何中心\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "1.txt").write_text("f8:p,e 1\nnps 100\n", encoding="utf-8")
+    config = tmp_path / "cfg.yaml"
+    config.write_text(
+        f'output_dir: "{tmp_path.as_posix()}"\n'
+        'mpi_command: "echo"\n',
+        encoding="utf-8",
+    )
+
+    completed = subprocess.run(
+        [sys.executable, "-m", "mcnp_research_skill.cli", "run-mpi",
+         "--config", str(config), "--input-files", "A.txt", "--dry-run"],
+        cwd=Path.cwd(), text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    )
+    assert completed.returncode == 0
+    payload = json.loads(completed.stdout)
+    assert payload["ok"] is True
+    names = [p["input_file"] for p in payload["planned"]]
+    assert "A.txt" in names
+    assert "1.txt" not in names

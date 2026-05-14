@@ -186,3 +186,62 @@ def test_run_mpi_batch_real_run_uses_fake_subprocess_and_cleans_temp_files(tmp_p
     assert not (tmp_path / "o.txt").exists()
     assert not (tmp_path / "runt123").exists()
     assert result["completed"][0]["output_file"] == "Cs-137-20cm-晶体表面.txt"
+
+
+# ---------------------------------------------------------------------------
+# input_files (explicit file list for run-only mode)
+# ---------------------------------------------------------------------------
+
+
+def _write_deck_with_meta(path: Path, meta_id: str = "Cs-137 (662 keV)", dist: str = "20cm", ref: str = "几何中心") -> Path:
+    path.write_text(
+        f"f8:p,e 1\nnps 100\nc Meta_ID:{meta_id} | Dist:{dist} | Ref:{ref}\n",
+        encoding="utf-8",
+    )
+    return path
+
+
+def test_input_files_explicit_list_dry_run(tmp_path: Path):
+    target = tmp_path
+    _write_deck_with_meta(target / "A.txt")
+    _write_deck_with_meta(target / "B.txt")
+    (target / "1.txt").write_text("f8:p,e 1\nnps 100\n", encoding="utf-8")
+
+    result = run_mpi_batch(
+        str(target), "mpirun -np 1 mcnp",
+        dry_run=True, input_files=["A.txt", "B.txt"],
+    )
+    assert result["ok"] is True
+    assert len(result["planned"]) == 2
+    names = [p["input_file"] for p in result["planned"]]
+    assert "A.txt" in names
+    assert "B.txt" in names
+    assert "1.txt" not in names  # not in the list
+
+
+def test_input_files_metadata_parsed_for_named_files(tmp_path: Path):
+    target = tmp_path
+    _write_deck_with_meta(target / "model.txt", meta_id="Cs-137 (662 keV)", dist="20cm", ref="几何中心")
+
+    result = run_mpi_batch(
+        str(target), "mpirun -np 1 mcnp",
+        dry_run=True, input_files=["model.txt"],
+    )
+    assert result["ok"] is True
+    planned = result["planned"][0]
+    assert planned["meta_id"] == "Cs-137_662keV"  # sanitised: spaces/parens removed
+    assert "Cs-137" in planned["output_file"]
+
+
+def test_input_files_none_preserves_old_behavior(tmp_path: Path):
+    target = tmp_path
+    (target / "1.txt").write_text("f8:p,e 1\nnps 100\n", encoding="utf-8")
+    (target / "2.txt").write_text("f8:p,e 1\nnps 100\n", encoding="utf-8")
+    _write_deck_with_meta(target / "model.txt")
+
+    result = run_mpi_batch(str(target), "mpirun -np 1 mcnp", dry_run=True)
+    assert result["ok"] is True
+    names = [p["input_file"] for p in result["planned"]]
+    assert "1.txt" in names
+    assert "2.txt" in names
+    assert "model.txt" not in names
