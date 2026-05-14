@@ -65,6 +65,21 @@ _PARTICLE_MAP: dict[str, set[str]] = {
 
 
 # ---------------------------------------------------------------------------
+# safe punctuation mapping for repair
+# ---------------------------------------------------------------------------
+
+_SAFE_PUNCT_MAP: dict[str, str] = {
+    "—": "--",   # em dash
+    "–": "-",    # en dash
+    "→": "->",   # rightwards arrow
+    "←": "<-",   # leftwards arrow
+    "‘": "'",    # left single quote
+    "’": "'",    # right single quote
+    "“": '"',    # left double quote
+    "”": '"',    # right double quote
+}
+
+# ---------------------------------------------------------------------------
 # helpers
 # ---------------------------------------------------------------------------
 
@@ -375,35 +390,82 @@ def diagnose_deck(
                     instruction_zh="确认该行意图：若是注释，改为 'c ...' 格式。",
                 ))
 
-    # ---- 5. bare Chinese / non-ASCII data lines ----
+    # ---- 5. non-ASCII characters ----
+    _NON_ASCII_RE = re.compile(r"[^\x00-\x7F]")
     has_chinese_anywhere = False
+
     for i, line in enumerate(lines):
+        stripped = line.strip()
+        if not stripped:
+            continue
+
+        is_comm = _is_comment(line)
+        is_title = _is_title_line(line, i, lines)
         has_cjk = bool(re.search(r"[一-鿿㐀-䶿豈-﫿]", line))
         if has_cjk:
             has_chinese_anywhere = True
-            stripped = line.strip()
-            if not stripped:
-                continue
-            if _is_comment(line):
-                continue  # c comment is fine
-            if _is_title_line(line, i, lines):
-                continue  # title line is fine
-            if stripped.startswith("$"):
-                continue  # inline comment is fine
-            # Bare Chinese on a non-comment line
+
+        has_non_ascii = bool(_NON_ASCII_RE.search(line))
+
+        # 5a. non-ASCII in title card
+        if is_title and has_non_ascii:
+            issues.append(_build_issue(
+                code="NON_ASCII_TITLE_CARD",
+                severity="error",
+                line=i + 1,
+                mcnp_version=mcnp_version,
+                observed=f"title line {i+1} contains non-ASCII characters",
+                expected="title card should be ASCII-only for legacy MCNP5 compatibility",
+                auto_fixable=True,
+                suggested_fix="将 Unicode 标点替换为 ASCII 等价形式（— → --, → → ->，等）",
+                user_explanation=f"第 {i+1} 行 title 包含非 ASCII 字符。老版本 MCNP5 可能将 title 行编码风险导致读取错误。",
+                topics=["MCNP5 title card", "MCNP5 input encoding"],
+                instruction_zh="将 title 中的非 ASCII 标点替换为 ASCII 等价物（— → --, → → ->）。",
+            ))
+            continue  # handled as title
+
+        # 5b. non-ASCII in data/cell/surface cards
+        if has_non_ascii and not is_comm and not is_title:
+            # Check if non-ASCII is only in $ inline comment portion
+            dollar_pos = line.find("$")
+            if dollar_pos >= 0:
+                before_dollar = line[:dollar_pos]
+                after_dollar = line[dollar_pos:]
+                if not _NON_ASCII_RE.search(before_dollar):
+                    # Non-ASCII only in inline comment — still warn for data cards
+                    issues.append(_build_issue(
+                        code="NON_ASCII_DATA_CARD",
+                        severity="warning",
+                        line=i + 1,
+                        mcnp_version=mcnp_version,
+                        observed=f"data card line {i+1} has non-ASCII in $ inline comment",
+                        expected="$ inline comments should use ASCII for legacy MCNP5",
+                        auto_fixable=True,
+                        suggested_fix="将 $ 注释中的 Unicode 标点替换为 ASCII 等价形式",
+                        user_explanation=f"第 {i+1} 行 data card 的 $ 注释中包含非 ASCII 字符。低版本 MCNP5 可能无法正确处理。",
+                        topics=["MCNP5 comment card", "MCNP5 input encoding"],
+                        instruction_zh="将 $ 注释中的 Unicode 替换为 ASCII。",
+                    ))
+                    continue
+            # Non-ASCII in actual card content
             issues.append(_build_issue(
                 code="NON_ASCII_DATA_CARD",
                 severity="error",
                 line=i + 1,
                 mcnp_version=mcnp_version,
-                observed=f"line {i+1} contains Chinese characters outside comment",
-                expected="Chinese text only in 'c ...' comment cards or '$ ...' inline comments",
-                auto_fixable=True,
-                suggested_fix=f'将该行改为 comment: c {stripped}',
-                user_explanation=f"第 {i+1} 行包含中文但不在注释卡中。MCNP5 会把非注释内容当作数据卡解析。",
-                topics=["MCNP5 comment card", "MCNP5 input encoding"],
-                instruction_zh="将中文行改为 'c 中文内容' 格式。检查是否影响后续卡片的行号。",
+                observed=f"data card line {i+1} contains non-ASCII characters in card content",
+                expected="cell/surface/data cards must be ASCII-only",
+                auto_fixable=False,
+                suggested_fix="手工检查并替换该行中的非 ASCII 字符",
+                user_explanation=f"第 {i+1} 行 data card 内容中包含非 ASCII 字符。MCNP5 无法解析此数据。",
+                topics=["MCNP5 input format", "MCNP5 input encoding"],
+                instruction_zh="检查该行的非 ASCII 字符来源。不要改动物理值。",
             ))
+
+        # 5c. Chinese characters anywhere → encoding risk warning
+        if has_cjk and (is_comm or is_title):
+            # Already handled; risk is tagged below
+            pass
 
     if has_chinese_anywhere:
         issues.append(_build_issue(
@@ -758,15 +820,38 @@ def repair_deck(
                 i += 1
                 continue
 
+        # --- fix: non-ASCII punctuation in title / comments ----
+        _NON_ASCII_RE = re.compile(r"[^\x00-\x7F]")
+        if _NON_ASCII_RE.search(line):
+            stripped = line.strip()
+            is_title = line_number == 1  # first line is always title
+            is_comm = _is_comment(line)
+            dollar_pos = line.find("$")
+
+            # Safe zones for punctuation replacement: title, c-comments, $ inline comments
+            safe_zone = is_title or is_comm or (dollar_pos >= 0 and not _CELL_RE.match(stripped) and not _SURF_RE.match(stripped))
+
+            if safe_zone:
+                before = line.rstrip("\n")
+                new_line = line
+                for uni_ch, ascii_ch in _SAFE_PUNCT_MAP.items():
+                    if uni_ch in new_line:
+                        new_line = new_line.replace(uni_ch, ascii_ch)
+                if new_line != line:
+                    line = new_line
+                    change_log.append({
+                        "line": line_number, "code": "NON_ASCII_TITLE_CARD" if is_title else "NON_ASCII_DATA_CARD",
+                        "before": before.rstrip("\n"), "after": line.rstrip("\n"),
+                        "reason": "non-ASCII punctuation replaced with ASCII equivalent",
+                    })
+
         # --- fix: bare Chinese / non-ASCII data line → comment ----
         has_cjk = bool(re.search(r"[一-鿿㐀-䶿豈-﫿]", line))
         if has_cjk:
             stripped = line.strip()
             if stripped and not _is_comment(line) and not _is_blank(line):
-                # Check if it's a real data card with Chinese (unlikely but handle)
                 if _CELL_RE.match(stripped) or _SURF_RE.match(stripped) or _MATERIAL_RE.match(stripped):
-                    # Has CJK in a card — don't touch
-                    pass
+                    pass  # Has CJK in a card — don't touch
                 elif not _is_title_line(line, i, lines):
                     before = line.rstrip("\n")
                     line = "c " + stripped if not stripped.startswith(("c ", "C ")) else line

@@ -1066,3 +1066,31 @@ def test_cli_diagnose_2x2_ok():
     assert r.returncode == 0
     p = json.loads(r.stdout)
     assert p["ok"]
+
+
+# ==================================================================
+# template title ASCII hardening
+# ==================================================================
+
+def test_1x1_template_title_ascii():
+    """1x1 template title must be pure ASCII."""
+    from mcnp_research_skill.models.registry import resolve_deck_path
+
+    title = resolve_deck_path("nai_1x1_template").read_text(encoding="utf-8").split("\n")[0]
+    assert all(ord(c) < 128 for c in title), f"1x1 title non-ASCII: {title!r}"
+
+
+def test_2x2_template_title_ascii():
+    """2x2 template title must be pure ASCII."""
+    from mcnp_research_skill.models.registry import resolve_deck_path
+
+    title = resolve_deck_path("nai_2x2_template").read_text(encoding="utf-8").split("\n")[0]
+    assert all(ord(c) < 128 for c in title), f"2x2 title non-ASCII: {title!r}"
+
+
+def test_3x3_verified_title_ascii():
+    """3x3 verified title must be pure ASCII."""
+    from mcnp_research_skill.models.registry import resolve_deck_path
+
+    title = resolve_deck_path("nai_3x3_verified").read_text(encoding="utf-8").split("\n")[0]
+    assert all(ord(c) < 128 for c in title), f"3x3 title non-ASCII: {title!r}"

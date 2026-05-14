@@ -733,3 +733,183 @@ def test_execute_safety_gates_unchanged():
     p2 = json.loads(r.stdout)
     assert p2["ok"] is False
     assert any("MISSING_CONFIRM_MPI" in str(e) for e in p2.get("errors", []))
+
+
+# ==================================================================
+# NON_ASCII_TITLE_CARD
+# ==================================================================
+
+def test_diagnose_non_ascii_title_card():
+    """Title line with non-ASCII (em dash) must trigger NON_ASCII_TITLE_CARD."""
+    from mcnp_research_skill.mcnp_input.diagnostics import diagnose_deck
+
+    deck = "test title — with em dash\n1 0 -1 imp:p=1\n1 so 100\nmode p\nnps 100\n"
+    result = diagnose_deck(deck, mcnp_version="mcnp5_rsicc_1_14")
+    assert _has_issue(result["issues"], "NON_ASCII_TITLE_CARD")
+
+
+def test_repair_non_ascii_title_punctuation():
+    """Repair must replace em dash in title with '--'."""
+    from mcnp_research_skill.mcnp_input.diagnostics import repair_deck
+
+    deck = "test — title\n1 0 -1 imp:p=1\n1 so 100\nmode p\nnps 100\n"
+    result = repair_deck(deck, mcnp_version="mcnp5_rsicc_1_14")
+    assert result["repaired"] is True
+    first_line = result["text"].split("\n")[0]
+    assert "—" not in first_line
+    assert "--" in first_line
+    cl = result["change_log"]
+    assert any(e["code"] == "NON_ASCII_TITLE_CARD" for e in cl)
+
+
+def test_repair_non_ascii_title_change_log_correct():
+    """Change log must record before/after for title repair."""
+    from mcnp_research_skill.mcnp_input.diagnostics import repair_deck
+
+    deck = "title — mid\n1 0 -1 imp:p=1\n1 so 100\nmode p\nnps 100\n"
+    result = repair_deck(deck, mcnp_version="mcnp5_rsicc_1_14")
+    cl_entry = next((e for e in result["change_log"] if e["code"] == "NON_ASCII_TITLE_CARD"), None)
+    assert cl_entry is not None
+    assert "—" in cl_entry["before"]
+    assert "—" not in cl_entry["after"]
+
+
+# ==================================================================
+# NON_ASCII_DATA_CARD
+# ==================================================================
+
+def test_diagnose_non_ascii_in_data_card():
+    """Non-ASCII in a card that's not a comment must trigger NON_ASCII_DATA_CARD."""
+    from mcnp_research_skill.mcnp_input.diagnostics import diagnose_deck
+
+    # nps card with non-ASCII inline
+    deck = "test\n1 0 -1 imp:p=1\n1 so 100\nmode p\nnps 100  $ — note\n"
+    result = diagnose_deck(deck, mcnp_version="mcnp5_rsicc_1_14")
+    assert _has_issue(result["issues"], "NON_ASCII_DATA_CARD")
+
+
+def test_diagnose_non_ascii_not_silently_passed():
+    """Non-ASCII in data card must NOT silently pass diagnostics."""
+    from mcnp_research_skill.mcnp_input.diagnostics import diagnose_deck
+
+    # A material card with non-ASCII
+    deck = "test\n1 0 -1 imp:p=1\n1 so 100\nmode p\nm1 13000 — 1.0\nnps 100\n"
+    result = diagnose_deck(deck, mcnp_version="mcnp5_rsicc_1_14")
+    issues = [i for i in result["issues"] if i["code"] == "NON_ASCII_DATA_CARD"]
+    assert len(issues) >= 1
+    # Should be error (in card content, not just inline comment)
+    assert any(i["severity"] == "error" for i in issues)
+
+
+# ==================================================================
+# legal Chinese comment card still works
+# ==================================================================
+
+def test_chinese_comment_still_legal():
+    """"c 中文注释" must not be flagged as NON_ASCII_DATA_CARD."""
+    from mcnp_research_skill.mcnp_input.diagnostics import diagnose_deck
+
+    deck = "test\n1 0 -1 imp:p=1\n1 so 100\nmode p\nc 中文注释\nnps 100\n"
+    result = diagnose_deck(deck, mcnp_version="mcnp5_rsicc_1_14")
+    assert not _has_issue(result["issues"], "NON_ASCII_DATA_CARD")
+    # Should get encoding risk warning
+    assert _has_issue(result["issues"], "CHINESE_COMMENT_ENCODING_RISK")
+
+
+def test_chinese_comment_not_blocking():
+    """CHINESE_COMMENT_ENCODING_RISK must be warning, not blocking."""
+    from mcnp_research_skill.mcnp_input.diagnostics import diagnose_deck
+
+    deck = "test\n1 0 -1 imp:p=1\n1 so 100\nmode p\nc 中文\nnps 100\n"
+    result = diagnose_deck(deck, mcnp_version="mcnp5_rsicc_1_14")
+    assert result["ok"] is True  # not blocked
+    enc = _issue_by_code(result["issues"], "CHINESE_COMMENT_ENCODING_RISK")
+    assert enc is not None
+    assert enc["severity"] == "warning"
+
+
+# ==================================================================
+# template fixture regression
+# ==================================================================
+
+def test_1x1_template_all_ascii():
+    """1x1 template must have zero non-ASCII characters."""
+    from mcnp_research_skill.models.registry import resolve_deck_path
+    import re
+
+    text = resolve_deck_path("nai_1x1_template").read_text(encoding="utf-8")
+    non_ascii = re.findall(r"[^\x00-\x7F]", text)
+    assert len(non_ascii) == 0, f"1x1 template has non-ASCII: {non_ascii!r}"
+
+
+def test_2x2_template_all_ascii():
+    """2x2 template must have zero non-ASCII characters."""
+    from mcnp_research_skill.models.registry import resolve_deck_path
+    import re
+
+    text = resolve_deck_path("nai_2x2_template").read_text(encoding="utf-8")
+    non_ascii = re.findall(r"[^\x00-\x7F]", text)
+    assert len(non_ascii) == 0, f"2x2 template has non-ASCII: {non_ascii!r}"
+
+
+def test_templates_non_comment_cards_ascii():
+    """Template non-comment cards must all be ASCII."""
+    from mcnp_research_skill.models.registry import resolve_deck_path
+    import re
+
+    for tid in ("nai_1x1_template", "nai_2x2_template"):
+        lines = resolve_deck_path(tid).read_text(encoding="utf-8").splitlines()
+        for i, line in enumerate(lines, 1):
+            stripped = line.strip()
+            if not stripped:
+                continue
+            # Skip comment cards
+            if stripped.startswith(("c ", "C ")):
+                continue
+            non_ascii = re.findall(r"[^\x00-\x7F]", line)
+            assert len(non_ascii) == 0, (
+                f"{tid} line {i} non-comment has non-ASCII: {non_ascii!r}  "
+                f"content: {line[:60]!r}"
+            )
+
+
+def test_templates_diagnostics_clean():
+    """Both templates must pass diagnostics with zero errors."""
+    from mcnp_research_skill.mcnp_input.diagnostics import diagnose_deck_file
+    from mcnp_research_skill.models.registry import resolve_deck_path
+
+    for tid in ("nai_1x1_template", "nai_2x2_template"):
+        diag = diagnose_deck_file(
+            str(resolve_deck_path(tid)), mcnp_version="mcnp5_rsicc_1_14"
+        )
+        assert diag["summary"]["blocking"] == 0, f"{tid} has blocking issues"
+        assert diag["summary"]["errors"] == 0, f"{tid} has errors"
+
+
+def test_templates_inspect_clean():
+    """Both templates must pass inspect with zero errors."""
+    from mcnp_research_skill.mcnp_input.inspection import inspect_deck_file
+    from mcnp_research_skill.models.registry import resolve_deck_path
+
+    for tid in ("nai_1x1_template", "nai_2x2_template"):
+        insp = inspect_deck_file(str(resolve_deck_path(tid)))
+        assert insp["errors"] == [], f"{tid} inspect errors: {insp['errors']}"
+
+
+# ==================================================================
+# nai_3x3_verified regression
+# ==================================================================
+
+def test_nai_3x3_not_flagged_by_new_checks():
+    """nai_3x3_verified must still pass diagnostics cleanly."""
+    from mcnp_research_skill.mcnp_input.diagnostics import diagnose_deck_file
+    from mcnp_research_skill.models.registry import resolve_deck_path
+
+    diag = diagnose_deck_file(
+        str(resolve_deck_path("nai_3x3_verified")), mcnp_version="mcnp5_rsicc_1_14"
+    )
+    assert diag["ok"] is True
+    assert diag["summary"]["blocking"] == 0
+    assert diag["summary"]["errors"] == 0
+    assert not _has_issue(diag["issues"], "NON_ASCII_TITLE_CARD")
+    assert not _has_issue(diag["issues"], "NON_ASCII_DATA_CARD")

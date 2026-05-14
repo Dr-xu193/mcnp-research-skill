@@ -1,4 +1,4 @@
-1x1 NaI(Tl) unverified template — MCNP5 compatible starter deck
+1x1 NaI(Tl) unverified template -- MCNP5 compatible starter deck
 c
 c   === STATUS: UNVERIFIED TEMPLATE ===
 c   This is NOT a physically validated model.  It is a simplified
@@ -13,12 +13,12 @@ c     - Air composition from A.txt fixture m6
 c     - Crystal nominal dimensions: 1 inch diameter x 1 inch length
 c       (Saint-Gobain / common vendor datasheet convention)
 c       Conversion: 1 inch = 2.54 cm; radius = diameter / 2 = 1.27 cm
-c     - Al housing wall thickness: 0.1 cm (assumption — user MUST validate)
-c     - Al front window thickness: 0.1 cm (assumption — user MUST validate)
+c     - Al housing wall thickness: 0.1 cm (assumption -- user MUST validate)
+c     - Al front window thickness: 0.1 cm (assumption -- user MUST validate)
 c     - No PMT, reflector, optical window, or rear structure included
 c       (insufficient verified data for 1x1)
 c
-c   Geometry summary (z-axis is detector axis, front → back):
+c   Geometry summary (z-axis is detector axis, front -> back):
 c     z = -0.10 : Al front window front face
 c     z =  0.00 : crystal front face / Al window back face
 c     z =  2.54 : crystal back face (1 inch from front)
@@ -45,9 +45,9 @@ c   --- surfaces ---
 
 c   --- data ---
 mode p e
-m1  11000 -0.1534 53000 -0.8466         $ NaI(Tl) — from A.txt fixture m1
-m2  13000 -1.0000                        $ Al — from A.txt fixture m3
-m3  7000 -0.7550 8000 -0.2320 18000 -0.0130  $ air — from A.txt fixture m6
+m1  11000 -0.1534 53000 -0.8466         $ NaI(Tl) -- from A.txt fixture m1
+m2  13000 -1.0000                        $ Al -- from A.txt fixture m3
+m3  7000 -0.7550 8000 -0.2320 18000 -0.0130  $ air -- from A.txt fixture m6
 sdef pos=0 0 -10 par=2 erg=0.662        $ placeholder point source (10 cm)
 f8:p,e 101
 e8  0 1024i 2.5

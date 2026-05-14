@@ -295,6 +295,9 @@ datasheet before using for real analysis.
 **Basis**: NaI(Tl) composition and density from verified A.txt fixture.
 Aluminum and air compositions from A.txt fixture.
 
+**MCNP5 encoding**: All template decks use ASCII-only title and data cards.
+Unicode punctuation (em dash, arrow) has been replaced with ASCII equivalents.
+
 ### Boundaries
 
 - **Built-in models still go through the full deck-aware workflow**: inspect → plan → patch → prepare → run → postprocess.  No shortcuts, no fixed-NaI scripts.
@@ -426,12 +429,19 @@ The repair layer **does not** modify:
 - MODE card
 - NPS value
 
-### Chinese comment policy
+### Encoding / non-ASCII policy
 
-- Chinese characters are **allowed** in MCNP comment cards (`c 中文...`)
-- Bare Chinese lines (outside comment cards) are flagged as `NON_ASCII_DATA_CARD`
-- `repair-deck` converts bare Chinese lines to `c ...` format
-- `CHINESE_COMMENT_ENCODING_RISK` is a **warning** (not blocking); older MCNP5 builds may require ASCII encoding
+- **Title card**: must be ASCII-only for MCNP5_RSICC 1.14 compatibility.
+  Non-ASCII in the title line triggers `NON_ASCII_TITLE_CARD` (error).
+  `repair-deck` replaces common Unicode punctuation (em dash → `--`, arrow → `->`, etc.) with ASCII equivalents.
+- **Data/cell/surface cards**: must be ASCII-only.  Non-ASCII in card content
+  triggers `NON_ASCII_DATA_CARD` (error).  Non-ASCII in `$` inline comments
+  triggers a warning.  `repair-deck` does **not** auto-modify data card content.
+- **Chinese in comment cards** (`c 中文...`): **allowed**, triggers
+  `CHINESE_COMMENT_ENCODING_RISK` (warning, not blocking).
+- **Bare Chinese lines** (outside comment cards): flagged as `NON_ASCII_DATA_CARD` (error).  `repair-deck` converts them to `c ...` format.
+- **Safe punctuation mapping** (repair only; applies to title, c comments, and `$` inline comments):
+  `—` → `--`, `–` → `-`, `→` → `->`, `←` → `<-`, `'`/`'` → `'`, `"`/`"` → `"`
 
 ### CLI: diagnose-deck
 
