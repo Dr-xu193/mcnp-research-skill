@@ -225,13 +225,18 @@ def _normalize_profile_composite_sources(profile_composite: dict) -> tuple[dict,
             raise ValueError(f"Composite source '{key}' is missing required field 'meta_id'")
         if "cards" not in src:
             raise ValueError(f"Composite source '{key}' is missing required field 'cards'")
+        if not isinstance(src["cards"], str):
+            raise ValueError(f"Composite source '{key}' 'cards' must be a string, got {type(src['cards']).__name__}")
         merged_sources[key] = {
             "meta_id": str(src["meta_id"]),
-            "cards": str(src["cards"]),
+            "cards": src["cards"],
             "skip_energy_prefix": str(src.get("skip_energy_prefix", "")),
         }
         merged_aliases[key] = key
-        for alias in src.get("aliases", []):
+        aliases = src.get("aliases", [])
+        if not isinstance(aliases, list):
+            raise ValueError(f"Composite source '{key}' 'aliases' must be a list, got {type(aliases).__name__}")
+        for alias in aliases:
             merged_aliases[str(alias).strip().lower().replace(" ", "")] = key
     return merged_sources, merged_aliases
 

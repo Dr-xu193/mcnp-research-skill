@@ -475,3 +475,55 @@ def test_generator_without_nuclides_uses_defaults(tmp_path: Path):
     )
     assert result["ok"] is True
     assert result["planned_files"][0]["meta_id"] == "Cs-137 (662 keV)"
+
+
+def test_nuclides_constants_not_mutated():
+    from mcnp_research_skill.mcnp_input.constants import (
+        COMPOSITE_ALIASES,
+        COMPOSITE_SOURCES,
+        ENERGY_DICT,
+    )
+    from mcnp_research_skill.mcnp_input.generator import (
+        _normalize_profile_composite_sources,
+        _normalize_profile_single_energy,
+    )
+    ed_before = dict(ENERGY_DICT)
+    cs_before = dict(COMPOSITE_SOURCES)
+    ca_before = dict(COMPOSITE_ALIASES)
+
+    _normalize_profile_single_energy({"Test": [0.1]})
+    _normalize_profile_composite_sources({"test": {"meta_id": "T", "cards": "si2 L\n"}})
+
+    assert ENERGY_DICT == ed_before
+    assert COMPOSITE_SOURCES == cs_before
+    assert COMPOSITE_ALIASES == ca_before
+
+
+def test_composite_source_cards_must_be_string(tmp_path: Path):
+    base_file = write_base(tmp_path / "b.txt", base_model())
+    nuclides = {
+        "composite_sources": {
+            "bad": {"meta_id": "X", "cards": ["line1", "line2"]},
+        },
+    }
+    result = generate_mcnp_inputs(
+        str(base_file), str(tmp_path / "out"), 20.0, "crystal_center",
+        "10000000", energies=[], dry_run=True, nuclides=nuclides,
+    )
+    assert result["ok"] is False
+    assert any("cards" in e.lower() and "string" in e.lower() for e in result["errors"])
+
+
+def test_composite_source_aliases_must_be_list(tmp_path: Path):
+    base_file = write_base(tmp_path / "b.txt", base_model())
+    nuclides = {
+        "composite_sources": {
+            "bad": {"meta_id": "X", "cards": "si2 L\n", "aliases": "not_a_list"},
+        },
+    }
+    result = generate_mcnp_inputs(
+        str(base_file), str(tmp_path / "out"), 20.0, "crystal_center",
+        "10000000", energies=[], dry_run=True, nuclides=nuclides,
+    )
+    assert result["ok"] is False
+    assert any("aliases" in e.lower() and "list" in e.lower() for e in result["errors"])
