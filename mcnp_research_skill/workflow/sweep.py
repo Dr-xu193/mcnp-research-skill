@@ -486,6 +486,136 @@ def prepare_disk_sweep(
     return result
 
 
+def run_disk_sweep(
+    *,
+    input_path: str | Path,
+    work_dir: str | Path,
+    distances: list[float] | None = None,
+    start: float | None = None,
+    stop: float | None = None,
+    step: float | None = None,
+    axis: str = "z",
+    reference_position: tuple[float, float, float] | list[float] = (0, 0, 0),
+    direction: int | float = 1,
+    source_energy: float | str,
+    source_radius: float | str,
+    source_particle: str | int | None = None,
+    source_ext: float | str = 0,
+    source_card_id: int | str | None = None,
+    nps: str | int | float | None = None,
+    postprocess: str = "none",
+    mpi_config_path: str | Path | None = None,
+    execute: bool = False,
+    confirm_mpi: bool = False,
+    mcnp_outputs: list[str] | None = None,
+    csv_dir: str | Path | None = None,
+    plot_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """Prepare disk sweep → optionally run → optionally F8 postprocess."""
+
+    wd = Path(work_dir); in_path = Path(input_path)
+
+    prep = prepare_disk_sweep(
+        input_path=in_path, work_dir=wd,
+        distances=distances, start=start, stop=stop, step=step,
+        axis=axis, reference_position=reference_position, direction=direction,
+        source_energy=source_energy, source_radius=source_radius,
+        source_particle=source_particle, source_ext=source_ext, source_card_id=source_card_id,
+        nps=nps, postprocess=postprocess,
+    )
+
+    result: dict[str, Any] = {
+        "ok": False, "schema_version": "1.0", "dry_run": not execute, "executed": False,
+        "prepared_count": prep.get("prepared_count", 0), "runner_input_files": [],
+        "run": {"status": "not_started"},
+        "postprocess_status": "not_requested" if postprocess == "none" else "planned_not_executed",
+        "artifacts": prep.get("artifacts", {}), "errors": prep.get("errors", []), "warnings": prep.get("warnings", []),
+    }
+
+    if not prep.get("ok"):
+        return result
+
+    items = prep.get("items", []); ok_items = [i for i in items if i["ok"]]
+    if not ok_items:
+        return result
+
+    input_name = in_path.name; stem = os.path.splitext(input_name)[0]
+    raw_files = [f"d{i['distance']}_{input_name}" for i in ok_items]
+    runner_files = [f.replace(".0_", "_") if ".0_" in f else f for f in raw_files]
+    result["runner_input_files"] = runner_files
+
+    if not execute:
+        result["ok"] = True; result["run"]["status"] = "skipped_dry_run"
+        return result
+    if not confirm_mpi:
+        result["ok"] = False; result["dry_run"] = False
+        result["errors"].append({"code": "MISSING_CONFIRM_MPI", "message": "Refusing to run MCNP without --confirm-mpi."})
+        return result
+    if mpi_config_path is None:
+        result["ok"] = False; result["dry_run"] = False
+        result["errors"].append({"code": "MISSING_MPI_CONFIG", "message": "MCNP execution requires --mpi-config."})
+        return result
+
+    staging = wd / "runner_inputs"; staging.mkdir(parents=True, exist_ok=True)
+    for item, name in zip(ok_items, runner_files):
+        shutil.copy2(Path(item["prepared_input_path"]), staging / name)
+    result["runner_inputs_dir"] = str(staging)
+
+    try:
+        cfg_text = Path(mpi_config_path).read_text(encoding="utf-8")
+        try:
+            import yaml; mpi_cfg = yaml.safe_load(cfg_text)
+        except ImportError:
+            mpi_cfg = {}
+    except OSError as exc:
+        result["ok"] = False; result["dry_run"] = False
+        result["errors"].append({"code": "MPI_CONFIG_LOAD_FAILED", "message": str(exc)})
+        return result
+    mpi_command = str(mpi_cfg.get("mpi_command", "")) if isinstance(mpi_cfg, dict) else ""
+
+    try:
+        runner_result = run_mpi_batch(target_dir=str(staging), mpi_command=mpi_command, dry_run=False, confirm=True, input_files=runner_files)
+    except Exception as exc:
+        result["ok"] = False; result["dry_run"] = False; result["run"]["status"] = "failed"
+        result["errors"].append({"code": "RUNNER_FAILED", "message": str(exc)})
+        return result
+    if not runner_result.get("ok"):
+        result["ok"] = False; result["dry_run"] = False; result["run"]["status"] = "failed"
+        result["errors"].extend({"code": "RUNNER_ERROR", "message": str(e)} for e in runner_result.get("errors", []))
+        return result
+
+    result["ok"] = True; result["dry_run"] = False; result["executed"] = True
+    result["run"]["status"] = "completed"
+    result["run"]["runner_summary"] = {k: runner_result.get(k) for k in ("commands", "completed", "failed") if k in runner_result}
+
+    if postprocess == "none":
+        _write_sweep_manifest(wd, result, "run_disk_sweep_manifest.json")
+        return result
+
+    csv_base = Path(csv_dir) if csv_dir else wd / "postprocess_csv"; csv_base.mkdir(parents=True, exist_ok=True)
+    plot_base = Path(plot_dir) if plot_dir else wd / "postprocess_plots"; plot_base.mkdir(parents=True, exist_ok=True)
+    completed_runner = runner_result.get("completed", [])
+    pp_ok = 0; pp_fail = 0
+
+    for i, (item, name) in enumerate(zip(ok_items, runner_files)):
+        mcnp_out = None
+        if mcnp_outputs and i < len(mcnp_outputs): mcnp_out = mcnp_outputs[i]
+        elif i < len(completed_runner): mcnp_out = completed_runner[i].get("output_path")
+        stem_item = os.path.splitext(name)[0]
+        pp = postprocess_workflow(input_path=Path(item["prepared_input_path"]), work_dir=item["work_dir"], mode=postprocess,
+                                  mcnp_output_path=mcnp_out, csv_output_path=csv_base / f"{stem_item}.csv", plot_output_path=plot_base / f"{stem_item}.png")
+        item["postprocess"] = {"ok": pp.get("ok"), "artifacts": pp.get("artifacts", {}), "blocked": pp.get("blocked", []), "errors": pp.get("errors", [])}
+        if pp.get("ok"): pp_ok += 1
+        else: pp_fail += 1
+
+    result["postprocess_summary"] = {"succeeded": pp_ok, "failed": pp_fail}
+    if pp_fail > 0 and pp_ok > 0: result["warnings"].append(f"Postprocess: {pp_ok} succeeded, {pp_fail} failed")
+    elif pp_fail > 0 and pp_ok == 0: result["ok"] = False; result["errors"].append({"code": "POSTPROCESS_ALL_FAILED", "message": "Postprocess failed for all files"})
+
+    _write_sweep_manifest(wd, result, "run_disk_sweep_manifest.json")
+    return result
+
+
 def _write_sweep_manifest(wd: Path, data: dict, name: str) -> None:
     try:
         path = wd / name

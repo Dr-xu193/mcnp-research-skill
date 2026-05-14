@@ -13,6 +13,7 @@
 | `postprocess-workflow` | Extract F8 CSV / plot from an existing MCNP output file | No |
 | `prepare-point-sweep` | Generate point-source distance sweep decks | No |
 | `prepare-disk-sweep` | Generate disk_tr1 distance sweep decks | No |
+| `run-disk-sweep` | Disk sweep → optionally run MCNP → optionally F8 postprocess | **Yes (if --execute)** |
 | `run-point-sweep` | Sweep → optionally run MCNP → optionally F8 postprocess | **Yes (if --execute)** |
 
 ## Current Boundaries
@@ -92,6 +93,46 @@ python -m mcnp_research_skill.cli prepare-disk-sweep `
 > It does **not** run MCNP, extract CSV, or plot.  Reference positions,
 > axes, and directions are pure mathematical transforms — no NaI
 > geometry or crystal-front-surface assumptions are baked in.
+
+### 5b. Disk-source sweep dry-run
+
+```powershell
+python -m mcnp_research_skill.cli run-disk-sweep `
+  --input A.txt `
+  --work-dir runs/disk_sweep_run `
+  --start 10 --stop 25 --step 5 `
+  --axis z `
+  --reference-position 0 0 0 `
+  --direction 1 `
+  --source-energy 0.662 `
+  --source-radius 0.15 `
+  --nps 1e7 `
+  --postprocess none
+```
+
+> Dry-run only — generates plans and runner_input_files but does **not**
+> execute MCNP.  Real execution requires `--execute --confirm-mpi --mpi-config`.
+
+### 5c. Disk-source sweep + real execution + F8 postprocess
+
+> **WARNING:** This command actually executes MCNP.
+
+```powershell
+python -m mcnp_research_skill.cli run-disk-sweep `
+  --input A.txt `
+  --work-dir runs/disk_sweep_exec `
+  --start 10 --stop 25 --step 5 `
+  --axis z `
+  --reference-position 0 0 0 `
+  --direction 1 `
+  --source-energy 0.662 `
+  --source-radius 0.15 `
+  --nps 1e7 `
+  --postprocess csv-and-plot `
+  --mpi-config cfg.yaml `
+  --execute `
+  --confirm-mpi
+```
 
 ---
 

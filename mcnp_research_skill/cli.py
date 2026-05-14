@@ -18,7 +18,7 @@ from .workflow.batch import batch_workflow
 from .workflow.postprocess import postprocess_workflow
 from .workflow.prepare import prepare_workflow
 from .workflow.run import run_workflow
-from .workflow.sweep import prepare_disk_sweep, prepare_point_sweep, run_point_sweep
+from .workflow.sweep import prepare_disk_sweep, prepare_point_sweep, run_disk_sweep, run_point_sweep
 from .mcnp_input.generator import generate_mcnp_inputs
 from .mcnp_output.tally_extractor import extract_tally_csvs
 from .mcnp_run.mpi_runner import run_mpi_batch
@@ -250,6 +250,24 @@ def run_command(args: argparse.Namespace) -> dict[str, Any]:
             mcnp_outputs=getattr(args, "mcnp_outputs", None),
             csv_dir=getattr(args, "csv_dir", None),
             plot_dir=getattr(args, "plot_dir", None),
+        )
+
+    if args.command == "run-disk-sweep":
+        return run_disk_sweep(
+            input_path=args.input, work_dir=args.work_dir,
+            distances=getattr(args, "distances", None),
+            start=getattr(args, "start", None), stop=getattr(args, "stop", None), step=getattr(args, "step", None),
+            axis=getattr(args, "axis", "z"), reference_position=getattr(args, "reference_position", (0, 0, 0)),
+            direction=getattr(args, "direction", 1),
+            source_energy=args.source_energy, source_radius=args.source_radius,
+            source_particle=getattr(args, "source_particle", None),
+            source_ext=getattr(args, "source_ext", 0), source_card_id=getattr(args, "source_card_id", None),
+            nps=getattr(args, "nps", None), postprocess=getattr(args, "postprocess", "none"),
+            mpi_config_path=getattr(args, "mpi_config", None),
+            execute=not bool(getattr(args, "dry_run", True)),
+            confirm_mpi=bool(getattr(args, "confirm_mpi", False)),
+            mcnp_outputs=getattr(args, "mcnp_outputs", None),
+            csv_dir=getattr(args, "csv_dir", None), plot_dir=getattr(args, "plot_dir", None),
         )
 
     if args.command == "prepare-disk-sweep":
@@ -489,6 +507,31 @@ def build_parser() -> argparse.ArgumentParser:
     prep_parser.add_argument("--source-radius", type=float, default=None, dest="source_radius")
     prep_parser.add_argument("--source-ext", type=float, default=0, dest="source_ext")
     prep_parser.add_argument("--source-card-id", type=int, default=None, dest="source_card_id")
+
+    rdsw_parser = subparsers.add_parser("run-disk-sweep")
+    rdsw_parser.add_argument("--input", required=True, dest="input")
+    rdsw_parser.add_argument("--work-dir", required=True, dest="work_dir")
+    rdsw_parser.add_argument("--distances", nargs="*", type=float, default=None, dest="distances")
+    rdsw_parser.add_argument("--start", type=float, default=None, dest="start")
+    rdsw_parser.add_argument("--stop", type=float, default=None, dest="stop")
+    rdsw_parser.add_argument("--step", type=float, default=None, dest="step")
+    rdsw_parser.add_argument("--axis", default="z", dest="axis")
+    rdsw_parser.add_argument("--reference-position", nargs=3, type=float, default=(0, 0, 0), dest="reference_position")
+    rdsw_parser.add_argument("--direction", type=float, default=1, dest="direction")
+    rdsw_parser.add_argument("--source-energy", type=float, required=True, dest="source_energy")
+    rdsw_parser.add_argument("--source-radius", type=float, required=True, dest="source_radius")
+    rdsw_parser.add_argument("--source-particle", default=None, dest="source_particle")
+    rdsw_parser.add_argument("--source-ext", type=float, default=0, dest="source_ext")
+    rdsw_parser.add_argument("--source-card-id", type=int, default=None, dest="source_card_id")
+    rdsw_parser.add_argument("--nps", default=None, dest="nps")
+    rdsw_parser.add_argument("--postprocess", default="none", dest="postprocess")
+    rdsw_parser.add_argument("--mpi-config", default=None, dest="mpi_config")
+    rdsw_parser.add_argument("--mcnp-outputs", nargs="*", default=None, dest="mcnp_outputs")
+    rdsw_parser.add_argument("--csv-dir", default=None, dest="csv_dir")
+    rdsw_parser.add_argument("--plot-dir", default=None, dest="plot_dir")
+    rdsw_parser.add_argument("--dry-run", action="store_true", dest="dry_run", default=True)
+    rdsw_parser.add_argument("--execute", action="store_false", dest="dry_run")
+    rdsw_parser.add_argument("--confirm-mpi", action="store_true", default=False)
 
     dsw_parser = subparsers.add_parser("prepare-disk-sweep")
     dsw_parser.add_argument("--input", required=True, dest="input")

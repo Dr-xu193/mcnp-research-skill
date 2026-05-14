@@ -2,7 +2,7 @@
 from __future__ import annotations
 import json, subprocess, sys
 from pathlib import Path
-from mcnp_research_skill.workflow.sweep import prepare_disk_sweep, prepare_point_sweep, run_point_sweep
+from mcnp_research_skill.workflow.sweep import prepare_disk_sweep, prepare_point_sweep, run_disk_sweep, run_point_sweep
 
 def deck(*lines): return "\n".join(lines) + "\n"
 F8 = deck("test","sdef old source","f8:p,e 1","nps 100000")
@@ -317,3 +317,68 @@ def test_cli_prepare_disk_sweep_missing_radius(tmp_path):
         "--source-energy","0.662","--source-radius","-1"],
         cwd=Path.cwd(),text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
     p=json.loads(r.stdout); assert p["ok"]==False
+
+
+# ---- run_disk_sweep ----
+
+def test_run_disk_sweep_dry(tmp_path):
+    inp = tmp_path/"A.txt"; inp.write_text("f8:p,e 1\nsdef old\nnps 100000\n", encoding="utf-8")
+    r = run_disk_sweep(input_path=inp, work_dir=tmp_path/"w", distances=[10], source_energy=0.662, source_radius=0.15, execute=False)
+    assert r["ok"]; assert r["dry_run"]==True; assert r["executed"]==False
+    assert r["run"]["status"]=="skipped_dry_run"
+    assert "d10_A.txt" in r["runner_input_files"]
+
+def test_run_disk_sweep_execute_no_confirm(tmp_path):
+    inp = tmp_path/"A.txt"; inp.write_text("f8:p,e 1\nsdef old\nnps 100\n", encoding="utf-8")
+    r = run_disk_sweep(input_path=inp, work_dir=tmp_path/"w", distances=[10], source_energy=0.662, source_radius=0.15, execute=True, confirm_mpi=False)
+    assert r["ok"]==False
+    assert any(e.get("code")=="MISSING_CONFIRM_MPI" for e in r["errors"] if isinstance(e,dict))
+
+def test_run_disk_sweep_execute_no_mpi_config(tmp_path):
+    inp = tmp_path/"A.txt"; inp.write_text("f8:p,e 1\nsdef old\nnps 100\n", encoding="utf-8")
+    r = run_disk_sweep(input_path=inp, work_dir=tmp_path/"w", distances=[10], source_energy=0.662, source_radius=0.15, execute=True, confirm_mpi=True, mpi_config_path=None)
+    assert r["ok"]==False
+    assert any(e.get("code")=="MISSING_MPI_CONFIG" for e in r["errors"] if isinstance(e,dict))
+
+def test_run_disk_sweep_execute_mock_runner(tmp_path, monkeypatch):
+    inp = tmp_path/"A.txt"; inp.write_text("f8:p,e 1\nsdef old\nnps 100\n", encoding="utf-8")
+    cfg = tmp_path/"cfg.yaml"; cfg.write_text('mpi_command: "echo"\n', encoding="utf-8")
+    calls = []
+    def fake_runner(**kw): calls.append(kw); return {"ok":True,"commands":[],"completed":[],"failed":[],"warnings":[],"errors":[]}
+    monkeypatch.setattr("mcnp_research_skill.workflow.sweep.run_mpi_batch", fake_runner)
+    r = run_disk_sweep(input_path=inp, work_dir=tmp_path/"w", distances=[10], source_energy=0.662, source_radius=0.15, execute=True, confirm_mpi=True, mpi_config_path=str(cfg))
+    assert r["ok"]; assert r["executed"]==True; assert len(calls)==1
+    assert calls[0]["input_files"]==["d10_A.txt"]
+
+def test_run_disk_sweep_postprocess_mock(tmp_path, monkeypatch):
+    inp = tmp_path/"A.txt"; inp.write_text("f8:p,e 1\nsdef old\nnps 100\n", encoding="utf-8")
+    cfg = tmp_path/"cfg.yaml"; cfg.write_text('mpi_command: "echo"\n', encoding="utf-8")
+    def fake_runner(**kw): return {"ok":True,"commands":[],"completed":[],"failed":[],"warnings":[],"errors":[]}
+    monkeypatch.setattr("mcnp_research_skill.workflow.sweep.run_mpi_batch", fake_runner)
+    pp_calls = []
+    def fake_pp(**kw): pp_calls.append(kw); return {"ok":True,"artifacts":{"csv":"c.csv"},"blocked":[],"errors":[],"warnings":[]}
+    monkeypatch.setattr("mcnp_research_skill.workflow.sweep.postprocess_workflow", fake_pp)
+    r = run_disk_sweep(input_path=inp, work_dir=tmp_path/"w", distances=[10, 20], source_energy=0.662, source_radius=0.15, postprocess="csv", execute=True, confirm_mpi=True, mpi_config_path=str(cfg))
+    assert r["ok"]; assert len(pp_calls)==2
+
+def test_run_disk_sweep_dry_postprocess_not_executed(tmp_path):
+    inp = tmp_path/"A.txt"; inp.write_text("f8:p,e 1\nsdef old\nnps 100\n", encoding="utf-8")
+    r = run_disk_sweep(input_path=inp, work_dir=tmp_path/"w", distances=[10], source_energy=0.662, source_radius=0.15, postprocess="csv", execute=False)
+    assert r["ok"]; assert r["postprocess_status"]=="planned_not_executed"
+
+def test_cli_run_disk_sweep_dry(tmp_path):
+    inp = tmp_path/"A.txt"; inp.write_text("f8:p,e 1\nsdef old\nnps 100\n", encoding="utf-8")
+    r = subprocess.run([sys.executable,"-m","mcnp_research_skill.cli","run-disk-sweep",
+        "--input",str(inp),"--work-dir",str(tmp_path/"w"),"--distances","10","20",
+        "--source-energy","0.662","--source-radius","0.15","--dry-run"],
+        cwd=Path.cwd(),text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+    assert r.returncode==0; p=json.loads(r.stdout); assert p["ok"]
+
+def test_cli_run_disk_sweep_execute_no_confirm(tmp_path):
+    inp = tmp_path/"A.txt"; inp.write_text("f8:p,e 1\nnps 100\n", encoding="utf-8")
+    r = subprocess.run([sys.executable,"-m","mcnp_research_skill.cli","run-disk-sweep",
+        "--input",str(inp),"--work-dir",str(tmp_path/"w"),"--distances","10",
+        "--source-energy","0.662","--source-radius","0.15","--execute"],
+        cwd=Path.cwd(),text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+    assert r.returncode!=0; p=json.loads(r.stdout)
+    assert any("MISSING_CONFIRM_MPI" in str(e) for e in p.get("errors",[]))
