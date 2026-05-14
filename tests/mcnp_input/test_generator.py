@@ -283,6 +283,16 @@ def test_resolve_reference_point_profile_name_match():
     assert rp["z"] == 12.34
 
 
+def test_resolve_reference_point_profile_short_label_match():
+    from mcnp_research_skill.mcnp_input.generator import resolve_reference_point
+
+    custom_rps = {
+        "custom_center": {"name": "Custom Center", "z": 12.34, "short_label": "CC"},
+    }
+    rp = resolve_reference_point("CC", custom_rps)
+    assert rp["z"] == 12.34
+
+
 def test_resolve_reference_point_falls_back_to_builtin():
     from mcnp_research_skill.mcnp_input.generator import resolve_reference_point
 

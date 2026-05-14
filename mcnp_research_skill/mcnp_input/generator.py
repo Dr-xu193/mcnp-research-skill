@@ -150,11 +150,15 @@ def _inject_source(content: str, source_block: str) -> tuple[str, int]:
 
 
 def _lookup_in_rps(reference_point: str, reference_points: dict) -> dict | None:
-    """Try to find *reference_point* by key, short label, or name field."""
+    """Try to find *reference_point* by key, short, name, or short_label field."""
     if reference_point in reference_points:
         return reference_points[reference_point]
     for _key, rp in reference_points.items():
-        if rp.get("short") == reference_point or rp.get("name") == reference_point:
+        if (
+            rp.get("short") == reference_point
+            or rp.get("name") == reference_point
+            or rp.get("short_label") == reference_point
+        ):
             return rp
     return None
 
