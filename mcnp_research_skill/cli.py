@@ -154,11 +154,18 @@ def run_command(args: argparse.Namespace) -> dict[str, Any]:
             "geb_params": geb_params,
             "mpi_command": str(args.mpi_command),
         }
-        return run_batch_pipeline(
-            config,
-            dry_run=bool(args.dry_run),
-            confirm_mpi=bool(args.confirm_mpi),
-        )
+        kwargs_batch: dict[str, Any] = {
+            "dry_run": bool(args.dry_run),
+            "confirm_mpi": bool(args.confirm_mpi),
+        }
+        pp = getattr(args, "profile_path", None)
+        pn = getattr(args, "profile_name", None)
+        if pp or pn:
+            from .config.profile import load_active_profile
+
+            active = load_active_profile(path=pp, profile_name=pn)
+            kwargs_batch["reference_points"] = active.get("detector", {}).get("reference_points", {})
+        return run_batch_pipeline(config, **kwargs_batch)
 
     if args.command == "validate-run":
         return validate_run(run_dir=args.run_dir, manifest_path=args.manifest)
@@ -208,7 +215,18 @@ def run_command(args: argparse.Namespace) -> dict[str, Any]:
         )
 
     if args.command == "run-core-pipeline":
-        return run_core_pipeline(config, dry_run=dry_run, confirm_mpi=bool(args.confirm_mpi))
+        kwargs: dict[str, Any] = {
+            "dry_run": dry_run,
+            "confirm_mpi": bool(args.confirm_mpi),
+        }
+        pp = getattr(args, "profile_path", None)
+        pn = getattr(args, "profile_name", None)
+        if pp or pn:
+            from .config.profile import load_active_profile
+
+            active = load_active_profile(path=pp, profile_name=pn)
+            kwargs["reference_points"] = active.get("detector", {}).get("reference_points", {})
+        return run_core_pipeline(config, **kwargs)
 
     return {"ok": False, "errors": [f"Unsupported command: {args.command}"], "warnings": []}
 
@@ -233,12 +251,20 @@ def build_parser() -> argparse.ArgumentParser:
     gen_parser.add_argument("--profile-path", default=None)
     gen_parser.add_argument("--profile-name", default=None)
 
-    for command in ["run-mpi", "extract-csv", "plot-spectra", "run-core-pipeline"]:
+    pipeline_parser = subparsers.add_parser("run-core-pipeline")
+    pipeline_parser.add_argument("--config", required=True)
+    pipeline_parser.add_argument("--dry-run", action="store_true", dest="dry_run", default=True)
+    pipeline_parser.add_argument("--execute", action="store_false", dest="dry_run")
+    pipeline_parser.add_argument("--confirm-mpi", action="store_true", default=False)
+    pipeline_parser.add_argument("--profile-path", default=None)
+    pipeline_parser.add_argument("--profile-name", default=None)
+
+    for command in ["run-mpi", "extract-csv", "plot-spectra"]:
         subparser = subparsers.add_parser(command)
         subparser.add_argument("--config", required=True)
         subparser.add_argument("--dry-run", action="store_true", dest="dry_run", default=True)
         subparser.add_argument("--execute", action="store_false", dest="dry_run")
-        if command in {"run-mpi", "run-core-pipeline"}:
+        if command in {"run-mpi"}:
             subparser.add_argument("--confirm-mpi", action="store_true", default=False)
 
     spe_parser = subparsers.add_parser("fit-geb-from-spe")
@@ -266,6 +292,8 @@ def build_parser() -> argparse.ArgumentParser:
     batch_parser.add_argument("--dry-run", action="store_true", dest="dry_run", default=True)
     batch_parser.add_argument("--execute", action="store_false", dest="dry_run")
     batch_parser.add_argument("--confirm-mpi", action="store_true", default=False)
+    batch_parser.add_argument("--profile-path", default=None)
+    batch_parser.add_argument("--profile-name", default=None)
 
     validate_parser = subparsers.add_parser("validate-run")
     validate_parser.add_argument("--run-dir")

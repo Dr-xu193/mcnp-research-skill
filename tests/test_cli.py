@@ -365,3 +365,179 @@ def test_generate_inputs_without_profile_uses_builtin_reference_points(tmp_path:
     content = payload["planned_files"][0]["content_preview"]
     # crystal_center z=3.81, distance=20 → -16.19
     assert "TR1 0 0 -16.1900" in content
+
+
+# ---------------------------------------------------------------------------
+# run-core-pipeline with --profile-path / --profile-name
+# ---------------------------------------------------------------------------
+
+
+def _write_pipeline_config(path: Path, base_file: Path, output_dir: Path, ref: str = "crystal_center") -> Path:
+    plot = (output_dir / "spectra.png").as_posix()
+    path.write_text(
+        f'base_file: "{base_file.as_posix()}"\n'
+        f'output_dir: "{output_dir.as_posix()}"\n'
+        "distance_cm: 20\n"
+        f'reference_point: "{ref}"\n'
+        'nps: "10000000"\n'
+        "energies:\n  - 0.662\n"
+        "composite_sources: []\n"
+        "custom_energy: null\n"
+        "geb_enabled: false\n"
+        'mpi_command: "echo"\n'
+        f'plot_output: "{plot}"\n',
+        encoding="utf-8",
+    )
+    return path
+
+
+def test_pipeline_cli_with_profile_custom_reference_point(tmp_path: Path):
+    base_file = tmp_path / "b.txt"
+    base_file.write_text("f8:p,e 1\nnps 1\n", encoding="utf-8")
+    profiles_path = _write_profiles_yaml(tmp_path / "profiles.yaml")
+    output_dir = tmp_path / "work"
+    output_dir.mkdir()
+    config_path = _write_pipeline_config(
+        tmp_path / "cfg.yaml", base_file, output_dir, ref="custom_center"
+    )
+
+    completed = subprocess.run(
+        [
+            sys.executable, "-m", "mcnp_research_skill.cli", "run-core-pipeline",
+            "--config", str(config_path),
+            "--profile-path", str(profiles_path),
+            "--profile-name", "lab2",
+            "--dry-run",
+        ],
+        cwd=Path.cwd(), text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    )
+    assert completed.returncode == 0, f"stderr={completed.stderr}"
+    payload = json.loads(completed.stdout)
+    assert payload["ok"] is True
+    gen = payload["steps"]["generate_inputs"]
+    content = gen["planned_files"][0]["content_preview"]
+    # custom_center z=12.34, distance=20 → -7.66
+    assert "TR1 0 0 -7.6600" in content
+
+
+def test_pipeline_cli_bad_profile_name_returns_json_error(tmp_path: Path):
+    base_file = tmp_path / "b.txt"
+    base_file.write_text("f8:p,e 1\nnps 1\n", encoding="utf-8")
+    profiles_path = _write_profiles_yaml(tmp_path / "profiles.yaml")
+    output_dir = tmp_path / "work"
+    output_dir.mkdir()
+    config_path = _write_pipeline_config(tmp_path / "cfg.yaml", base_file, output_dir)
+
+    completed = subprocess.run(
+        [
+            sys.executable, "-m", "mcnp_research_skill.cli", "run-core-pipeline",
+            "--config", str(config_path),
+            "--profile-path", str(profiles_path),
+            "--profile-name", "nonexistent",
+            "--dry-run",
+        ],
+        cwd=Path.cwd(), text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    )
+    assert completed.returncode != 0
+    payload = json.loads(completed.stdout)
+    assert payload["ok"] is False
+    assert any("nonexistent" in e for e in payload["errors"])
+
+
+# ---------------------------------------------------------------------------
+# batch-run with --profile-path / --profile-name
+# ---------------------------------------------------------------------------
+
+
+def test_batch_cli_with_profile_custom_reference_point(tmp_path: Path):
+    base_file = tmp_path / "A.txt"
+    base_file.write_text("f8:p,e 1\nnps 1\n", encoding="utf-8")
+    profiles_path = _write_profiles_yaml(tmp_path / "profiles.yaml")
+    output_dir = tmp_path / "run_test"
+
+    completed = subprocess.run(
+        [
+            sys.executable, "-m", "mcnp_research_skill.cli", "batch-run",
+            "--base-file", str(base_file),
+            "--output-dir", str(output_dir),
+            "--reference-point", "custom_center",
+            "--nps", "1000000",
+            "--distance-start", "10",
+            "--distance-end", "10",
+            "--distance-step", "10",
+            "--custom-energy-kev", "663.52",
+            "--mpi-command", "echo",
+            "--profile-path", str(profiles_path),
+            "--profile-name", "lab2",
+            "--dry-run",
+        ],
+        cwd=Path.cwd(), text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    )
+    assert completed.returncode == 0
+    payload = json.loads(completed.stdout)
+    assert payload["ok"] is True
+    subrun = payload["subruns"][0]
+    gen = subrun["result"]["steps"]["generate_inputs"]
+    content = gen["planned_files"][0]["content_preview"]
+    # custom_center z=12.34, distance=10 → 2.34
+    assert "TR1 0 0 2.3400" in content
+
+
+def test_batch_cli_bad_profile_name_returns_json_error(tmp_path: Path):
+    base_file = tmp_path / "A.txt"
+    base_file.write_text("f8:p,e 1\nnps 1\n", encoding="utf-8")
+    profiles_path = _write_profiles_yaml(tmp_path / "profiles.yaml")
+    output_dir = tmp_path / "run_test"
+
+    completed = subprocess.run(
+        [
+            sys.executable, "-m", "mcnp_research_skill.cli", "batch-run",
+            "--base-file", str(base_file),
+            "--output-dir", str(output_dir),
+            "--reference-point", "crystal_center",
+            "--nps", "1000000",
+            "--distance-start", "10",
+            "--distance-end", "10",
+            "--distance-step", "10",
+            "--custom-energy-kev", "663.52",
+            "--mpi-command", "echo",
+            "--profile-path", str(profiles_path),
+            "--profile-name", "nonexistent",
+            "--dry-run",
+        ],
+        cwd=Path.cwd(), text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    )
+    assert completed.returncode != 0
+    payload = json.loads(completed.stdout)
+    assert payload["ok"] is False
+    assert any("nonexistent" in e for e in payload["errors"])
+
+
+def test_batch_cli_bad_reference_point_returns_json_error(tmp_path: Path):
+    base_file = tmp_path / "A.txt"
+    base_file.write_text("f8:p,e 1\nnps 1\n", encoding="utf-8")
+    profiles_path = _write_profiles_yaml(tmp_path / "profiles.yaml")
+    output_dir = tmp_path / "run_test"
+
+    completed = subprocess.run(
+        [
+            sys.executable, "-m", "mcnp_research_skill.cli", "batch-run",
+            "--base-file", str(base_file),
+            "--output-dir", str(output_dir),
+            "--reference-point", "ghost_point",
+            "--nps", "1000000",
+            "--distance-start", "10",
+            "--distance-end", "10",
+            "--distance-step", "10",
+            "--custom-energy-kev", "663.52",
+            "--mpi-command", "echo",
+            "--profile-path", str(profiles_path),
+            "--profile-name", "lab2",
+            "--dry-run",
+        ],
+        cwd=Path.cwd(), text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    )
+    assert completed.returncode != 0
+    payload = json.loads(completed.stdout)
+    assert payload["ok"] is False
+    assert any("ghost_point" in e for e in payload["errors"])

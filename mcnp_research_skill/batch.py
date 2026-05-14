@@ -78,6 +78,7 @@ def run_batch_pipeline(
     config: dict[str, Any],
     dry_run: bool = True,
     confirm_mpi: bool = False,
+    reference_points: dict | None = None,
 ) -> dict[str, Any]:
     """Run or plan a distance-expanded MCNP pipeline batch."""
     result = _base_result(config, dry_run)
@@ -101,7 +102,9 @@ def run_batch_pipeline(
     subruns: list[dict[str, Any]] = []
     for distance in distances:
         sub_config = _subrun_config(config, distance)
-        pipeline_result = run_core_pipeline(sub_config, dry_run=dry_run, confirm_mpi=confirm_mpi)
+        pipeline_result = run_core_pipeline(
+            sub_config, dry_run=dry_run, confirm_mpi=confirm_mpi, reference_points=reference_points
+        )
         subrun = {
             "distance_cm": distance,
             "output_dir": sub_config["output_dir"],

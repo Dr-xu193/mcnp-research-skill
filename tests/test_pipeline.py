@@ -181,3 +181,58 @@ def test_run_core_pipeline_skips_plot_when_no_csv_files_exist(tmp_path: Path, mo
     assert result["ok"] is True
     assert result["steps"]["plot_spectra"]["skipped"] is True
     assert any("csv" in warning.lower() for warning in result["warnings"])
+
+
+# ---------------------------------------------------------------------------
+# run_core_pipeline with reference_points
+# ---------------------------------------------------------------------------
+
+
+def test_pipeline_passes_custom_reference_points_to_generator(tmp_path: Path, monkeypatch) -> None:
+    config = base_config(tmp_path)
+    output_dir = Path(config["output_dir"])
+    output_dir.mkdir()
+    write_base(output_dir / "1.txt")
+    write_output_txt(output_dir / "result.txt")
+    csv_path = output_dir / "existing_Data.csv"
+    csv_path.write_text(
+        "Energy (MeV),Tally (Counts/Particle),Relative Error\n0.1,1.0,0.01\n",
+        encoding="utf-8",
+    )
+    custom_rps = {
+        "custom_center": {"name": "Custom Center", "z": 12.34, "short_label": "CC"},
+    }
+    config["reference_point"] = "custom_center"
+    monkeypatch.setattr("mcnp_research_skill.mcnp_run.mpi_runner.subprocess.run", lambda *a, **kw: None)
+
+    result = run_core_pipeline(config, dry_run=True, reference_points=custom_rps)
+
+    assert result["ok"] is True
+    gen_step = result["steps"]["generate_inputs"]
+    planned = gen_step["planned_files"][0]
+    # With custom_center z=12.34 at distance=20, TR1 z should be -7.66
+    assert "TR1 0 0 -7.6600" in planned["content_preview"]
+    assert gen_step["metadata"]["reference_short"] == "Custom Center"
+
+
+def test_pipeline_without_reference_points_uses_builtin(tmp_path: Path, monkeypatch) -> None:
+    config = base_config(tmp_path)
+    output_dir = Path(config["output_dir"])
+    output_dir.mkdir()
+    write_base(output_dir / "1.txt")
+    write_output_txt(output_dir / "result.txt")
+    csv_path = output_dir / "existing_Data.csv"
+    csv_path.write_text(
+        "Energy (MeV),Tally (Counts/Particle),Relative Error\n0.1,1.0,0.01\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("mcnp_research_skill.mcnp_run.mpi_runner.subprocess.run", lambda *a, **kw: None)
+
+    result = run_core_pipeline(config, dry_run=True)
+
+    assert result["ok"] is True
+    gen_step = result["steps"]["generate_inputs"]
+    planned = gen_step["planned_files"][0]
+    # With crystal_center z=3.81 at distance=20, TR1 z should be -16.19
+    assert "TR1 0 0 -16.1900" in planned["content_preview"]
+    assert gen_step["metadata"]["reference_short"] == "几何中心"

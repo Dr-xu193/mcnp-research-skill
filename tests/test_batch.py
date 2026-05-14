@@ -70,10 +70,11 @@ def test_batch_execute_writes_manifest_with_fake_core_pipeline(tmp_path: Path, m
     output_dir = tmp_path / "run_663"
     seen_configs: list[dict[str, object]] = []
 
-    def fake_run_core_pipeline(config: dict, dry_run: bool, confirm_mpi: bool):  # noqa: ANN001
+    def fake_run_core_pipeline(config: dict, dry_run: bool, confirm_mpi: bool, reference_points=None):  # noqa: ANN001
         seen_configs.append(config)
         assert dry_run is False
         assert confirm_mpi is True
+        assert reference_points is None
         return {
             "ok": True,
             "dry_run": False,
@@ -149,3 +150,76 @@ def test_cli_batch_run_dry_run_outputs_json(tmp_path: Path) -> None:
     assert payload["distances_cm"] == [16.3, 21.3, 26.3, 31.3, 36.3]
     assert output_dir.exists() is False
     assert completed.stderr == ""
+
+
+# ---------------------------------------------------------------------------
+# run_batch_pipeline with reference_points
+# ---------------------------------------------------------------------------
+
+
+def test_batch_passes_reference_points_to_subruns(tmp_path: Path, monkeypatch) -> None:
+    base_file = _write_base(tmp_path / "A.txt")
+    output_dir = tmp_path / "run_test"
+    custom_rps = {
+        "custom_center": {"name": "Custom Center", "z": 5.0, "short_label": "CC"},
+    }
+    seen_rps: list[dict | None] = []
+
+    def fake_run_core_pipeline(
+        config: dict, dry_run: bool, confirm_mpi: bool, reference_points=None
+    ):  # noqa: ANN001
+        seen_rps.append(reference_points)
+        return {
+            "ok": True,
+            "dry_run": dry_run,
+            "steps": {
+                "generate_inputs": {"ok": True, "generated_files": []},
+                "run_mpi": {"ok": True, "completed": []},
+                "extract_csv": {"ok": True, "csv_files": []},
+                "plot_spectra": {"ok": True, "written_files": []},
+            },
+            "warnings": [],
+            "errors": [],
+        }
+
+    monkeypatch.setattr("mcnp_research_skill.batch.run_core_pipeline", fake_run_core_pipeline)
+
+    result = run_batch_pipeline(
+        _batch_config(base_file, output_dir), dry_run=True, reference_points=custom_rps
+    )
+
+    assert result["ok"] is True
+    assert len(seen_rps) == 5
+    for rp in seen_rps:
+        assert rp == custom_rps
+
+
+def test_batch_without_reference_points_passes_none(tmp_path: Path, monkeypatch) -> None:
+    base_file = _write_base(tmp_path / "A.txt")
+    output_dir = tmp_path / "run_test"
+    seen_rps: list[dict | None] = []
+
+    def fake_run_core_pipeline(
+        config: dict, dry_run: bool, confirm_mpi: bool, reference_points=None
+    ):  # noqa: ANN001
+        seen_rps.append(reference_points)
+        return {
+            "ok": True,
+            "dry_run": dry_run,
+            "steps": {
+                "generate_inputs": {"ok": True, "generated_files": []},
+                "run_mpi": {"ok": True, "completed": []},
+                "extract_csv": {"ok": True, "csv_files": []},
+                "plot_spectra": {"ok": True, "written_files": []},
+            },
+            "warnings": [],
+            "errors": [],
+        }
+
+    monkeypatch.setattr("mcnp_research_skill.batch.run_core_pipeline", fake_run_core_pipeline)
+
+    result = run_batch_pipeline(_batch_config(base_file, output_dir), dry_run=True)
+
+    assert result["ok"] is True
+    for rp in seen_rps:
+        assert rp is None
