@@ -51,29 +51,32 @@ def _detect_tally_support(kind: str) -> bool:
 
 
 def _guess_source_type(sdef_line: str | None, tr_cards: list[str]) -> str:
-    """Return a short source-type guess string."""
+    """Return a short source-type guess string.
+
+    - ``point_like``: SDEF has ``pos=`` and no ``rad=``, ``ext=``, ``sur=``, or ``cel=``.
+    - ``disk_or_area``: SDEF has ``sur=`` or ``rad=`` / ``ext=``.
+    - ``cell_source``: SDEF has ``cel=``.
+    - ``unknown``: anything else (or no SDEF at all).
+
+    Uses of TR/TRn transformations are tracked separately through
+    ``source.uses_tr`` and ``source.tr_cards`` — they do not influence
+    the morphology guess.
+    """
     if sdef_line is None:
-        if tr_cards:
-            return "transformed_source"
         return "unknown"
     lower = sdef_line.lower()
-    has_tr = bool(re.search(r"\btr\s*=", lower))
     has_rad = bool(re.search(r"\brad\s*=", lower))
     has_ext = bool(re.search(r"\bext\s*=", lower))
     has_sur = bool(re.search(r"\bsur\s*=", lower))
     has_cel = bool(re.search(r"\bcel\s*=", lower))
-    has_erg = bool(re.search(r"\berg\s*=", lower))
     has_pos = bool(re.search(r"\bpos\s*=", lower))
-    has_par = bool(re.search(r"\bpar\s*=", lower))
 
-    if has_rad and has_ext and has_erg and has_par:
-        return "point_like"
-    if has_tr and has_pos and has_par:
-        return "transformed_source"
-    if has_sur:
+    if has_sur or has_rad or has_ext:
         return "disk_or_area"
     if has_cel:
         return "cell_source"
+    if has_pos:
+        return "point_like"
     return "unknown"
 
 

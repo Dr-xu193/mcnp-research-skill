@@ -60,7 +60,8 @@ def test_full_f8_deck_all_present():
     assert result["source"]["has_rad_distribution"] is True
     assert result["source"]["has_si_sp"] is True
     assert len(result["source"]["tr_cards"]) >= 1
-    assert result["source"]["guess"] == "point_like"
+    # has rad= + ext= → disk_or_area, NOT point_like
+    assert result["source"]["guess"] == "disk_or_area"
 
     assert len(result["tallies"]) == 1
     t = result["tallies"][0]
@@ -160,6 +161,53 @@ def test_mixed_tallies_warns():
     assert len(result["tallies"]) == 2
     assert result["ok"] is True
     assert any("Multiple tally" in w for w in result["warnings"])
+
+
+# ---------------------------------------------------------------------------
+# source_guess
+# ---------------------------------------------------------------------------
+
+
+def test_source_guess_point_like_for_plain_pos():
+    text = deck("test", "sdef pos=0 0 0 par=2 erg=0.662", "f8:p,e 1", "nps 100")
+    result = inspect_deck(text)
+    assert result["source"]["guess"] == "point_like"
+
+
+def test_source_guess_not_point_like_for_rad_ext():
+    text = deck(
+        "test",
+        "sdef pos=0 0 -0.005 rad=d1 ext=0 par=2 tr=1 erg=0.662",
+        "si1 0 0.15",
+        "sp1 -21 1",
+        "TR1 0 0 -16.1900",
+        "f8:p,e 1",
+        "nps 100",
+    )
+    result = inspect_deck(text)
+    assert result["source"]["has_rad_distribution"] is True
+    assert result["source"]["uses_tr"] == ["1"]
+    assert len(result["source"]["tr_cards"]) >= 1
+    assert result["source"]["guess"] != "point_like"
+    assert result["source"]["guess"] == "disk_or_area"
+
+
+def test_source_guess_sur_is_disk_or_area():
+    text = deck("test", "sdef sur=1 par=2", "f8:p,e 1", "nps 100")
+    result = inspect_deck(text)
+    assert result["source"]["guess"] == "disk_or_area"
+
+
+def test_source_guess_cel_is_cell_source():
+    text = deck("test", "sdef cel=1 par=2", "f8:p,e 1", "nps 100")
+    result = inspect_deck(text)
+    assert result["source"]["guess"] == "cell_source"
+
+
+def test_source_guess_unknown_without_pos_rad_sur_cel():
+    text = deck("test", "sdef par=2 erg=0.662", "f8:p,e 1", "nps 100")
+    result = inspect_deck(text)
+    assert result["source"]["guess"] == "unknown"
 
 
 # ---------------------------------------------------------------------------
