@@ -536,6 +536,7 @@ def run_disk_sweep(
         return result
 
     items = prep.get("items", []); ok_items = [i for i in items if i["ok"]]
+    result["items"] = items
     if not ok_items:
         return result
 
@@ -601,6 +602,9 @@ def run_disk_sweep(
         mcnp_out = None
         if mcnp_outputs and i < len(mcnp_outputs): mcnp_out = mcnp_outputs[i]
         elif i < len(completed_runner): mcnp_out = completed_runner[i].get("output_path")
+        # If no output path is available from any source, deliberately trigger MISSING_MCNP_OUTPUT
+        if mcnp_out is None:
+            mcnp_out = str(staging / "__nonexistent__.txt")
         stem_item = os.path.splitext(name)[0]
         pp = postprocess_workflow(input_path=Path(item["prepared_input_path"]), work_dir=item["work_dir"], mode=postprocess,
                                   mcnp_output_path=mcnp_out, csv_output_path=csv_base / f"{stem_item}.csv", plot_output_path=plot_base / f"{stem_item}.png")

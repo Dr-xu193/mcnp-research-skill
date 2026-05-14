@@ -382,3 +382,60 @@ def test_cli_run_disk_sweep_execute_no_confirm(tmp_path):
         cwd=Path.cwd(),text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
     assert r.returncode!=0; p=json.loads(r.stdout)
     assert any("MISSING_CONFIRM_MPI" in str(e) for e in p.get("errors",[]))
+
+
+# ---- run_disk_sweep safety boundaries ----
+
+F4_DECK2 = "title\nmode p\nf4:p 1\nnps 100\n"
+
+def test_run_disk_sweep_f4_postprocess_csv_blocked(tmp_path):
+    inp = tmp_path/"A.txt"; inp.write_text(F4_DECK2, encoding="utf-8")
+    r = run_disk_sweep(input_path=inp, work_dir=tmp_path/"w", distances=[10], source_energy=0.662, source_radius=0.15, postprocess="csv", execute=False)
+    assert r["postprocess_status"] != "completed"
+
+def test_run_disk_sweep_missing_radius(tmp_path):
+    r = run_disk_sweep(input_path=Path("."), work_dir=Path("w"), distances=[10], source_energy=0.662, source_radius="")
+    assert r["ok"]==False
+    assert any(e.get("code")=="MISSING_SOURCE_RADIUS" for e in r["errors"] if isinstance(e,dict))
+
+def test_cli_run_disk_sweep_missing_radius(tmp_path):
+    inp = tmp_path/"A.txt"; inp.write_text("nps 100\n", encoding="utf-8")
+    r = subprocess.run([sys.executable,"-m","mcnp_research_skill.cli","run-disk-sweep",
+        "--input",str(inp),"--work-dir",str(tmp_path/"w"),"--distances","10",
+        "--source-energy","0.662","--source-radius","-1","--dry-run"],
+        cwd=Path.cwd(),text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+    p=json.loads(r.stdout); assert p["ok"]==False
+
+def test_run_disk_sweep_card_id_conflict(tmp_path):
+    inp = tmp_path/"A.txt"; inp.write_text("tr7 1 2 3\nf8:p,e 1\nnps 100\n", encoding="utf-8")
+    r = run_disk_sweep(input_path=inp, work_dir=tmp_path/"w", distances=[10], source_energy=0.662, source_radius=0.15, source_card_id=7, execute=False)
+    assert any(not item["ok"] for item in r.get("items",[])) or r["ok"]==False
+
+def test_run_disk_sweep_explicit_output_priority(tmp_path, monkeypatch):
+    inp = tmp_path/"A.txt"; inp.write_text("f8:p,e 1\nsdef old\nnps 100\n", encoding="utf-8")
+    cfg = tmp_path/"cfg.yaml"; cfg.write_text('mpi_command: "echo"\n', encoding="utf-8")
+    def fake_runner(**kw): return {"ok":True,"commands":[],"completed":[],"failed":[],"warnings":[],"errors":[]}
+    monkeypatch.setattr("mcnp_research_skill.workflow.sweep.run_mpi_batch", fake_runner)
+    pp_calls = []
+    def fake_pp(**kw): pp_calls.append(kw); return {"ok":True,"artifacts":{"csv":"c.csv"},"blocked":[],"errors":[],"warnings":[]}
+    monkeypatch.setattr("mcnp_research_skill.workflow.sweep.postprocess_workflow", fake_pp)
+    r = run_disk_sweep(input_path=inp, work_dir=tmp_path/"w", distances=[10], source_energy=0.662, source_radius=0.15, postprocess="csv", execute=True, confirm_mpi=True, mpi_config_path=str(cfg), mcnp_outputs=["/explicit/path.out"])
+    assert r["ok"]; assert len(pp_calls)==1
+    assert pp_calls[0]["mcnp_output_path"]=="/explicit/path.out"
+
+def test_run_disk_sweep_postprocess_missing_output(tmp_path, monkeypatch):
+    inp = tmp_path/"A.txt"; inp.write_text("f8:p,e 1\nsdef old\nnps 100\n", encoding="utf-8")
+    cfg = tmp_path/"cfg.yaml"; cfg.write_text('mpi_command: "echo"\n', encoding="utf-8")
+    # Runner succeeds but returns empty completed list -> postprocess gets None as output path
+    def fake_runner(**kw): return {"ok":True,"commands":[],"completed":[],"failed":[],"warnings":[],"errors":[]}
+    monkeypatch.setattr("mcnp_research_skill.workflow.sweep.run_mpi_batch", fake_runner)
+    r = run_disk_sweep(input_path=inp, work_dir=tmp_path/"w", distances=[10], source_energy=0.662, source_radius=0.15, postprocess="csv", execute=True, confirm_mpi=True, mpi_config_path=str(cfg))
+    item = r["items"][0]
+    pp = item.get("postprocess", {})
+    assert pp["ok"]==False
+    assert any(e.get("code")=="MISSING_MCNP_OUTPUT" for e in pp.get("errors",[]) if isinstance(e,dict))
+
+def test_run_disk_sweep_multi_distance_safety(tmp_path, monkeypatch):
+    inp = tmp_path/"A.txt"; inp.write_text("f8:p,e 1\nsdef old\nnps 100\n", encoding="utf-8")
+    r = run_disk_sweep(input_path=inp, work_dir=tmp_path/"w", distances=[10, 20], source_energy=0.662, source_radius=0.15, execute=True, confirm_mpi=True, mpi_config_path=None)
+    assert r["ok"]==False; assert r["executed"]==False

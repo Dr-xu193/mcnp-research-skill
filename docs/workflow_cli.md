@@ -112,6 +112,14 @@ python -m mcnp_research_skill.cli run-disk-sweep `
 
 > Dry-run only — generates plans and runner_input_files but does **not**
 > execute MCNP.  Real execution requires `--execute --confirm-mpi --mpi-config`.
+>
+> **CSV/plot still only supports F8.**  F4/F5/F6/FMESH tallies are detected
+> but will return `CSV_REQUIRES_F8` if postprocess is requested.  Dry-run
+> with `--postprocess csv` only marks `planned_not_executed` — no postprocess
+> runs.  The MCNP output path priority for execute+postprocess is:
+> 1. User-explicit `--mcnp-outputs`
+> 2. Runner summary `completed[].output_path`
+> 3. `MISSING_MCNP_OUTPUT` (error, not traceback)
 
 ### 5c. Disk-source sweep + real execution + F8 postprocess
 
