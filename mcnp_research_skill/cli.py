@@ -126,7 +126,18 @@ def run_command(args: argparse.Namespace) -> dict[str, Any]:
         )
 
     if args.command == "fit-geb-from-spe":
-        return fit_geb_from_spe_files(args.spe_files)
+        kwargs_spe: dict[str, Any] = {"spe_files": args.spe_files}
+        pp = getattr(args, "profile_path", None)
+        pn = getattr(args, "profile_name", None)
+        if pp or pn:
+            from .config.profile import load_active_profile
+            from .geb.spe import _merge_geb_nuclides
+
+            active = load_active_profile(path=pp, profile_name=pn)
+            geb = active.get("geb", {})
+            nuclide_energies_dict, _ = _merge_geb_nuclides(geb)
+            kwargs_spe["nuclide_energies"] = nuclide_energies_dict
+        return fit_geb_from_spe_files(**kwargs_spe)
 
     if args.command == "origin-export":
         return export_origin_projects(
@@ -272,6 +283,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     spe_parser = subparsers.add_parser("fit-geb-from-spe")
     spe_parser.add_argument("--spe", action="append", required=True, dest="spe_files")
+    spe_parser.add_argument("--profile-path", default=None)
+    spe_parser.add_argument("--profile-name", default=None)
 
     origin_parser = subparsers.add_parser("origin-export")
     origin_parser.add_argument("--target-dir", required=True)

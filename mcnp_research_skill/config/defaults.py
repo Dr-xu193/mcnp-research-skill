@@ -37,6 +37,10 @@ DEFAULT_PROFILE: dict = {
                 },
                 "composite_sources": {},
             },
+            "geb": {
+                "nuclide_energies": {},
+                "sp2_weights": {},
+            },
             "plotting": {
                 "preferred_fonts": [
                     "SimHei",

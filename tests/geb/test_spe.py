@@ -2,7 +2,10 @@ import math
 import sys
 from pathlib import Path
 
+import pytest
+
 from mcnp_research_skill.geb.spe import (
+    _merge_geb_nuclides,
     extract_fwhm_points_from_spe,
     fit_geb_from_spe_files,
     identify_nuclide_from_filename,
@@ -139,3 +142,82 @@ def test_unidentified_nuclide_goes_to_skipped_files(tmp_path: Path) -> None:
 def test_spe_module_does_not_depend_on_gui_modules() -> None:
     assert "tkinter" not in sys.modules
     assert "tkinter.messagebox" not in sys.modules
+
+
+# ---------------------------------------------------------------------------
+# GEB nuclides from profile (_merge_geb_nuclides)
+# ---------------------------------------------------------------------------
+
+
+def test_merge_geb_default_returns_builtin():
+    from mcnp_research_skill.geb.constants import NUCLIDE_ENERGIES, SP2_WEIGHTS
+
+    energies, weights = _merge_geb_nuclides(None)
+    assert energies == NUCLIDE_ENERGIES
+    assert weights == SP2_WEIGHTS
+
+    energies2, weights2 = _merge_geb_nuclides({})
+    assert energies2 == NUCLIDE_ENERGIES
+
+
+def test_merge_geb_adds_custom_nuclide():
+    geb = {"nuclide_energies": {"TEST-100": [0.1]}}
+    energies, _ = _merge_geb_nuclides(geb)
+    assert "TEST-100" in energies
+    assert energies["TEST-100"] == [0.1]
+    # Built-in still present
+    assert "CS-137" in energies
+
+
+def test_merge_geb_overrides_existing_nuclide():
+    geb = {"nuclide_energies": {"CS-137": [0.7, 1.0]}}
+    energies, _ = _merge_geb_nuclides(geb)
+    assert energies["CS-137"] == [0.7, 1.0]
+
+
+def test_merge_geb_bad_energy_raises():
+    geb = {"nuclide_energies": {"BAD": ["abc"]}}
+    with pytest.raises(ValueError, match="BAD"):
+        _merge_geb_nuclides(geb)
+
+
+def test_merge_geb_sp2_weights_conversion():
+    geb = {
+        "nuclide_energies": {"CO-60": [1.173, 1.332]},
+        "sp2_weights": {"CO-60": [0.9985, 0.9998]},
+    }
+    _, weights = _merge_geb_nuclides(geb)
+    assert "CO-60" in weights
+    assert weights["CO-60"] == {1.173: 0.9985, 1.332: 0.9998}
+
+
+def test_merge_geb_sp2_weights_mismatch_raises():
+    geb = {
+        "nuclide_energies": {"CO-60": [1.173, 1.332]},
+        "sp2_weights": {"CO-60": [0.5]},  # Only 1 weight for 2 energies
+    }
+    with pytest.raises(ValueError, match="sp2_weights"):
+        _merge_geb_nuclides(geb)
+
+
+def test_merge_geb_sp2_weights_unknown_nuclide():
+    geb = {"sp2_weights": {"GHOST": [0.5]}}
+    with pytest.raises(ValueError, match="GHOST"):
+        _merge_geb_nuclides(geb)
+
+
+def test_merge_geb_sp2_weights_bad_value():
+    geb = {
+        "nuclide_energies": {"CO-60": [1.173, 1.332]},
+        "sp2_weights": {"CO-60": [0.5, "bad"]},
+    }
+    with pytest.raises(ValueError, match="CO-60"):
+        _merge_geb_nuclides(geb)
+
+
+def test_identify_nuclide_uses_custom_dict():
+    custom = {"TEST-100": [0.1]}
+    result = identify_nuclide_from_filename("test-100_4-29.spe", nuclide_energies=custom)
+    assert result["ok"] is True
+    assert result["nuclide"] == "TEST-100"
+    assert result["energies"] == [0.1]

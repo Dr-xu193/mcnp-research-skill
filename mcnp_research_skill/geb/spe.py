@@ -8,7 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from .constants import NUCLIDE_ENERGIES, SPE_CALIBRATIONS
+from .constants import NUCLIDE_ENERGIES, SP2_WEIGHTS, SPE_CALIBRATIONS
 from .fitter import fit_geb_parameters
 
 
@@ -54,11 +54,67 @@ def parse_spe_file(path: str) -> dict[str, Any]:
     return result
 
 
-def identify_nuclide_from_filename(filename: str) -> dict[str, Any]:
+def _merge_geb_nuclides(profile_geb: dict | None) -> tuple[dict[str, list[float]], dict[str, dict[float, float]]]:
+    """Merge profile GEB nuclides onto built-in constants.
+
+    Returns ``(nuclide_energies, sp2_weights)`` in the internal format
+    used by the GEB module.  When *profile_geb* is ``None`` or empty the
+    built-in constants are returned as-is.
+    """
+    if not profile_geb:
+        return dict(NUCLIDE_ENERGIES), dict(SP2_WEIGHTS)
+
+    # --- nuclide_energies ---
+    merged_energies = dict(NUCLIDE_ENERGIES)
+    for nuclide, energies in profile_geb.get("nuclide_energies", {}).items():
+        key = nuclide.upper().replace(" ", "")
+        if not isinstance(energies, list):
+            raise ValueError(f"GEB nuclide '{nuclide}' energies must be a list, got {type(energies).__name__}")
+        float_energies: list[float] = []
+        for e in energies:
+            try:
+                float_energies.append(float(e))
+            except (TypeError, ValueError):
+                raise ValueError(f"GEB nuclide '{nuclide}' has non-numeric energy: {e!r}")
+        merged_energies[key] = float_energies
+
+    # --- sp2_weights ---
+    merged_weights: dict[str, dict[float, float]] = dict(SP2_WEIGHTS)
+    for nuclide, weights in profile_geb.get("sp2_weights", {}).items():
+        key = nuclide.upper().replace(" ", "")
+        if not isinstance(weights, list):
+            raise ValueError(f"GEB sp2_weights for '{nuclide}' must be a list, got {type(weights).__name__}")
+        energies = merged_energies.get(key)
+        if energies is None:
+            raise ValueError(f"GEB sp2_weights references unknown nuclide '{nuclide}' — add it to nuclide_energies first")
+        if len(weights) != len(energies):
+            raise ValueError(
+                f"GEB sp2_weights for '{nuclide}' has {len(weights)} entries "
+                f"but nuclide_energies has {len(energies)} energies"
+            )
+        weight_dict: dict[float, float] = {}
+        for e, w in zip(energies, weights):
+            try:
+                weight_dict[e] = float(w)
+            except (TypeError, ValueError):
+                raise ValueError(f"GEB sp2_weights for '{nuclide}' has non-numeric weight: {w!r}")
+        merged_weights[key] = weight_dict
+
+    return merged_energies, merged_weights
+
+
+def identify_nuclide_from_filename(
+    filename: str,
+    nuclide_energies: dict[str, list[float]] | None = None,
+) -> dict[str, Any]:
     """Identify supported calibration nuclide from a SPE filename."""
+    if nuclide_energies is None:
+        nuclide_energies = NUCLIDE_ENERGIES
     fn_upper = os.path.basename(filename).upper()
-    for key, energies in NUCLIDE_ENERGIES.items():
+    for key, energies in nuclide_energies.items():
         parts = key.split("-")
+        if len(parts) < 2:
+            continue
         if parts[0] in fn_upper and parts[1] in fn_upper:
             return {
                 "ok": True,
@@ -167,6 +223,7 @@ def _extract_one_energy_fwhm(
 
 def extract_fwhm_points_from_spe(
     spe_files: list[str],
+    nuclide_energies: dict[str, list[float]] | None = None,
 ) -> dict[str, Any]:
     """Extract valid ``energy_mev``/``fwhm_mev`` points from SPE files."""
     result: dict[str, Any] = {
@@ -180,7 +237,7 @@ def extract_fwhm_points_from_spe(
 
     for path in spe_files:
         filename = os.path.basename(path)
-        identification = identify_nuclide_from_filename(filename)
+        identification = identify_nuclide_from_filename(filename, nuclide_energies=nuclide_energies)
         if not identification["ok"]:
             result["skipped_files"].append({"path": path, "reason": "unidentified_nuclide"})
             result["warnings"].extend(identification["warnings"])
@@ -219,9 +276,10 @@ def extract_fwhm_points_from_spe(
 
 def fit_geb_from_spe_files(
     spe_files: list[str],
+    nuclide_energies: dict[str, list[float]] | None = None,
 ) -> dict[str, Any]:
     """Infer GEB parameters from one or more SPE files."""
-    extracted = extract_fwhm_points_from_spe(spe_files)
+    extracted = extract_fwhm_points_from_spe(spe_files, nuclide_energies=nuclide_energies)
     result: dict[str, Any] = {
         **extracted,
         "fitted_params": None,
