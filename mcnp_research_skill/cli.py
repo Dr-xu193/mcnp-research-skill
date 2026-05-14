@@ -13,6 +13,7 @@ from .config.profile import write_default_profiles
 from .diagnostics import run_doctor
 from .mcnp_input.inspection import inspect_deck_file
 from .mcnp_input.patching import patch_deck_file
+from .mcnp_input.diagnostics import diagnose_deck_file, repair_deck_file
 from .models.registry import list_models, resolve_deck_path
 from .workflow.planner import plan_workflow
 from .workflow.batch import batch_workflow
@@ -155,11 +156,31 @@ def run_command(args: argparse.Namespace) -> dict[str, Any]:
             return inspect_deck_file(path)
         return {"ok": False, "errors": [{"code": "INVALID_MODELS_ACTION", "message": f"Unknown models action: {args.models_action}"}]}
 
+    if args.command == "diagnose-deck":
+        diag_input = _resolve_input(args)
+        if not diag_input:
+            return {"ok": False, "errors": [{"code": "MISSING_INPUT", "message": "--input or --builtin-model is required."}]}
+        mv = getattr(args, "mcnp_version", "mcnp5_rsicc_1_14")
+        return diagnose_deck_file(diag_input, mcnp_version=mv)
+
+    if args.command == "repair-deck":
+        repair_input = _resolve_input(args)
+        if not repair_input:
+            return {"ok": False, "errors": [{"code": "MISSING_INPUT", "message": "--input or --builtin-model is required."}]}
+        if not getattr(args, "output", None):
+            return {"ok": False, "errors": [{"code": "MISSING_OUTPUT", "message": "--output is required for repair-deck."}]}
+        mv = getattr(args, "mcnp_version", "mcnp5_rsicc_1_14")
+        return repair_deck_file(repair_input, args.output, mcnp_version=mv)
+
     if args.command == "inspect-deck":
         input_path = _resolve_input(args)
         if not input_path:
             return {"ok": False, "errors": [{"code": "MISSING_INPUT", "message": "Either --input or --builtin-model is required."}]}
-        return inspect_deck_file(input_path)
+        result = inspect_deck_file(input_path)
+        if getattr(args, "diagnostics", False):
+            mv = getattr(args, "mcnp_version", "mcnp5_rsicc_1_14")
+            result["diagnostics"] = diagnose_deck_file(input_path, mcnp_version=mv)
+        return result
 
     if args.command == "plan-workflow":
         input_path = _resolve_input(args)
@@ -201,6 +222,12 @@ def run_command(args: argparse.Namespace) -> dict[str, Any]:
         input_path = _resolve_input(args)
         if not input_path:
             return {"ok": False, "errors": [{"code": "MISSING_INPUT", "message": "Either --input or --builtin-model is required."}]}
+        if getattr(args, "diagnostics", False) or getattr(args, "mcnp_version", None):
+            mv = getattr(args, "mcnp_version", "mcnp5_rsicc_1_14")
+            diag = diagnose_deck_file(input_path, mcnp_version=mv)
+            if not diag.get("ok"):
+                diag["stage"] = "diagnostics"
+                return diag
         return prepare_workflow(
             input_path=input_path,
             work_dir=args.work_dir,
@@ -513,9 +540,22 @@ def build_parser() -> argparse.ArgumentParser:
     models_parser.add_argument("models_action", choices=["list", "inspect"])
     models_parser.add_argument("model_id", nargs="?", default=None)
 
+    diag_parser = subparsers.add_parser("diagnose-deck")
+    diag_parser.add_argument("--input", default=None, dest="input")
+    diag_parser.add_argument("--builtin-model", default=None, dest="builtin_model")
+    diag_parser.add_argument("--mcnp-version", default="mcnp5_rsicc_1_14", dest="mcnp_version")
+
+    repair_parser = subparsers.add_parser("repair-deck")
+    repair_parser.add_argument("--input", default=None, dest="input")
+    repair_parser.add_argument("--builtin-model", default=None, dest="builtin_model")
+    repair_parser.add_argument("--output", required=True, dest="output")
+    repair_parser.add_argument("--mcnp-version", default="mcnp5_rsicc_1_14", dest="mcnp_version")
+
     inspect_parser = subparsers.add_parser("inspect-deck")
     inspect_parser.add_argument("--input", default=None, dest="input")
     inspect_parser.add_argument("--builtin-model", default=None, dest="builtin_model")
+    inspect_parser.add_argument("--diagnostics", action="store_true", default=False, dest="diagnostics")
+    inspect_parser.add_argument("--mcnp-version", default=None, dest="mcnp_version")
 
     plan_parser = subparsers.add_parser("plan-workflow")
     plan_parser.add_argument("--input", default=None, dest="input")
@@ -552,6 +592,8 @@ def build_parser() -> argparse.ArgumentParser:
     prep_parser.add_argument("--source-radius", type=float, default=None, dest="source_radius")
     prep_parser.add_argument("--source-ext", type=float, default=0, dest="source_ext")
     prep_parser.add_argument("--source-card-id", type=int, default=None, dest="source_card_id")
+    prep_parser.add_argument("--diagnostics", action="store_true", default=False, dest="diagnostics")
+    prep_parser.add_argument("--mcnp-version", default=None, dest="mcnp_version")
 
     rdsw_parser = subparsers.add_parser("run-disk-sweep")
     rdsw_parser.add_argument("--input", required=True, dest="input")

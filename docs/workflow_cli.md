@@ -331,3 +331,136 @@ python -m mcnp_research_skill.cli prepare-workflow `
 > The `--builtin-model` flag is also accepted by `inspect-deck`,
 > `plan-workflow`, `patch-deck`, and `run-workflow` as an alternative to
 > `--input`.  When both are given, `--builtin-model` takes precedence.
+
+---
+
+## MCNP5 Compatibility Diagnostics
+
+A static preflight check layer for MCNP5 input decks.  Does **not** simulate
+or replace the MCNP5 parser — it identifies formatting, reference, and
+consistency problems before execution.
+
+### Supported version profiles
+
+| Profile | Alias | Description |
+|---------|-------|-------------|
+| `mcnp5_rsicc_1_14` | `mcnp5_legacy` | Conservative legacy MCNP5 (RSICC 1.14 class): ≤80 columns, 5-space continuation, no tabs |
+
+### What is checked
+
+| Category | Issue Codes |
+|----------|------------|
+| Line length | `LINE_TOO_LONG` (columns > 80) |
+| Tabs | `TAB_CHARACTER` |
+| Card placement | `CARD_START_COLUMN` (card keyword not in cols 1-5) |
+| Continuation | `INVALID_CONTINUATION` |
+| Comments | `NON_ASCII_DATA_CARD`, `CHINESE_COMMENT_ENCODING_RISK` |
+| Block structure | `MISSING_BLOCK_DELIMITER` |
+| References | `UNKNOWN_TALLY_CELL_REFERENCE`, `UNKNOWN_SURFACE_REFERENCE`, `UNKNOWN_MATERIAL_REFERENCE` |
+| Consistency | `MODE_TALLY_MISMATCH`, `MODE_SOURCE_MISMATCH` |
+
+### Issue structure
+
+Every diagnostic issue includes:
+
+- `code` — stable issue code
+- `severity` — `blocking` / `error` / `warning`
+- `line` — 1-based line number
+- `column` / `column_range` — optional
+- `message` — one-line summary
+- `mcnp_version` — which rule set was used
+- `observed` — what was found
+- `expected` — what the rule expects
+- `auto_fixable` — whether `repair-deck` can fix this
+- `suggested_fix` — human-readable suggestion
+- `user_explanation` — Chinese explanation for the user
+- `ai_guidance` — structured guidance for AI-assisted repair:
+  - `mcnp_version_assumed`
+  - `topics_to_review` — MCNP5 manual topics to consult
+  - `instruction` — specific instruction in Chinese
+
+### Repair boundaries
+
+`repair-deck` only performs **safe format fixes**:
+
+| Fix | Description |
+|-----|-------------|
+| tabs → spaces | Replace tab characters with 4-space-aligned spaces |
+| long line → continuation | Split data-card lines at word boundaries before col 80 |
+| bare CJK → comment | Prepend `c ` to bare Chinese lines |
+
+The repair layer **does not** modify:
+- Cell / surface geometry expressions
+- Material compositions
+- F tally definitions
+- SDEF source physics
+- MODE card
+- NPS value
+
+### Chinese comment policy
+
+- Chinese characters are **allowed** in MCNP comment cards (`c 中文...`)
+- Bare Chinese lines (outside comment cards) are flagged as `NON_ASCII_DATA_CARD`
+- `repair-deck` converts bare Chinese lines to `c ...` format
+- `CHINESE_COMMENT_ENCODING_RISK` is a **warning** (not blocking); older MCNP5 builds may require ASCII encoding
+
+### CLI: diagnose-deck
+
+```powershell
+# Diagnose a deck against legacy MCNP5 rules
+python -m mcnp_research_skill.cli diagnose-deck --input A.txt
+
+# Use built-in model
+python -m mcnp_research_skill.cli diagnose-deck --builtin-model nai_3x3_verified
+
+# Specify version
+python -m mcnp_research_skill.cli diagnose-deck --input A.txt --mcnp-version mcnp5_rsicc_1_14
+```
+
+### CLI: repair-deck
+
+```powershell
+# Safe automatic format repair
+python -m mcnp_research_skill.cli repair-deck --input A.txt --output repaired.txt
+
+# Repaired text is written to --output; change log is in JSON stdout
+```
+
+### CLI: inspect-deck with diagnostics
+
+```powershell
+python -m mcnp_research_skill.cli inspect-deck --input A.txt --diagnostics
+```
+
+The output includes a `diagnostics` key with the full diagnostics result.
+
+### CLI: prepare-workflow with diagnostics
+
+```powershell
+python -m mcnp_research_skill.cli prepare-workflow `
+  --input A.txt --work-dir runs/w --workflow-mode run-only `
+  --source-strategy preserve_existing_source --postprocess none `
+  --diagnostics
+```
+
+- **Blocking issues** → `ok=false`, no prepared deck written
+- **Warning/error only** → proceeds normally
+- Without `--diagnostics` → diagnostics are not run (backward compatible)
+
+### Workflow integration summary
+
+| Command | `--diagnostics` | Effect |
+|---------|----------------|--------|
+| `inspect-deck` | optional | Adds `diagnostics` key to output |
+| `prepare-workflow` | optional | Blocks on blocking issues |
+| `diagnose-deck` | standalone | Full diagnostics JSON |
+| `repair-deck` | standalone | Repaired file + change log |
+
+### Boundaries
+
+- **Not an MCNP5 parser**: this is static hygiene — it cannot detect all MCNP5 syntax errors.
+- **Run-only unchanged**: `run-only` does not require F8; diagnostics do not add tally requirements.
+- **CSV/plot unchanged**: non-F8 + csv/plot still returns `CSV_REQUIRES_F8`.
+- **Safety gates unchanged**: `--execute --confirm-mpi --mpi-config` still required for real execution.
+- **No physics changes**: repair never touches geometry, material, source, or tally definitions.
+- **No automatic complex repairs**: continuation splitting is only attempted on data cards, not cell geometry lines.
