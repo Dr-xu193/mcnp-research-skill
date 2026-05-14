@@ -182,6 +182,15 @@ def _normalize_rp(key: str, rp: dict) -> dict:
     return {"z": z, "short": str(rp.get("short", rp.get("name", key)))}
 
 
+def _format_kev_label(mev: float) -> str:
+    """Return a human-readable keV string for *mev*, preserving fractional keV."""
+    kev = round(mev * 1000, 9)
+    if kev == int(kev):
+        return f"{int(kev)} keV"
+    s = f"{kev:.9f}".rstrip("0").rstrip(".")
+    return f"{s} keV"
+
+
 def _normalize_profile_single_energy(profile_single: dict) -> dict[str, float]:
     """Merge profile single_energy onto built-in ENERGY_DICT.
 
@@ -204,8 +213,7 @@ def _normalize_profile_single_energy(profile_single: dict) -> dict[str, float]:
                 e_float = float(e)
             except (TypeError, ValueError):
                 raise ValueError(f"Nuclide '{name}' has non-numeric energy: {e!r}")
-            kev = round(e_float * 1000)
-            label = f"{name} ({kev} keV)"
+            label = f"{name} ({_format_kev_label(e_float)})"
             merged[label] = e_float
     return merged
 

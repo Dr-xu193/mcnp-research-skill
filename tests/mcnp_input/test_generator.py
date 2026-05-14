@@ -527,3 +527,57 @@ def test_composite_source_aliases_must_be_list(tmp_path: Path):
     )
     assert result["ok"] is False
     assert any("aliases" in e.lower() and "list" in e.lower() for e in result["errors"])
+
+
+# ---------------------------------------------------------------------------
+# keV label formatting (fractional-preserving)
+# ---------------------------------------------------------------------------
+
+
+def test_kev_label_fractional_energy(tmp_path: Path):
+    base_file = write_base(tmp_path / "b.txt", base_model())
+    # Use a unique energy not in built-in ENERGY_DICT
+    nuclides = {"single_energy": {"Test-59": [0.12345]}}
+    result = generate_mcnp_inputs(
+        str(base_file), str(tmp_path / "out"), 20.0, "crystal_center",
+        "10000000", energies=[0.12345], dry_run=True, nuclides=nuclides,
+    )
+    assert result["ok"] is True
+    planned = result["planned_files"][0]
+    assert planned["meta_id"] == "Test-59 (123.45 keV)"
+    assert "erg=0.12345" in planned["content_preview"]
+
+
+def test_kev_label_profile_am241_preserves_595_kev(tmp_path: Path):
+    base_file = write_base(tmp_path / "b.txt", base_model())
+    nuclides = {"single_energy": {"Am-241": [0.0595]}}
+    result = generate_mcnp_inputs(
+        str(base_file), str(tmp_path / "out"), 20.0, "crystal_center",
+        "10000000", energies=[0.0595], dry_run=True, nuclides=nuclides,
+    )
+    assert result["ok"] is True
+    planned = result["planned_files"][0]
+    assert planned["meta_id"] == "Am-241 (59.5 keV)"
+
+
+def test_kev_label_integer_kev_no_decimal(tmp_path: Path):
+    base_file = write_base(tmp_path / "b.txt", base_model())
+    nuclides = {"single_energy": {"Cs-137": [0.662]}}
+    result = generate_mcnp_inputs(
+        str(base_file), str(tmp_path / "out"), 20.0, "crystal_center",
+        "10000000", energies=[0.662], dry_run=True, nuclides=nuclides,
+    )
+    assert result["ok"] is True
+    planned = result["planned_files"][0]
+    assert planned["meta_id"] == "Cs-137 (662 keV)"
+
+
+def test_kev_label_default_behavior_unchanged(tmp_path: Path):
+    """Without profile nuclides, built-in labels are used as-is."""
+    base_file = write_base(tmp_path / "b.txt", base_model())
+    result = generate_mcnp_inputs(
+        str(base_file), str(tmp_path / "out"), 20.0, "crystal_center",
+        "10000000", energies=[0.662], dry_run=True,
+    )
+    assert result["ok"] is True
+    assert result["planned_files"][0]["meta_id"] == "Cs-137 (662 keV)"
