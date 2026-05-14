@@ -162,6 +162,8 @@ def prepare_workflow(
     # ---- collect actions ----
     result["planned_actions"] = plan.get("actions", [])
     result["warnings"] = plan.get("warnings", [])
+    if nps is not None or effective_strategy != "preserve_existing_source":
+        result["warnings"].extend(patch_result.get("warnings", []))
     result["errors"] = errors  # structural errors from this phase
 
     # ---- write manifest ----

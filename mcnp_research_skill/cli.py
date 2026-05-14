@@ -13,6 +13,7 @@ from .config.profile import write_default_profiles
 from .diagnostics import run_doctor
 from .mcnp_input.inspection import inspect_deck_file
 from .mcnp_input.patching import patch_deck_file
+from .models.registry import list_models, resolve_deck_path
 from .workflow.planner import plan_workflow
 from .workflow.batch import batch_workflow
 from .workflow.postprocess import postprocess_workflow
@@ -124,6 +125,16 @@ def _existing_csv_files(output_dir: str) -> list[str]:
     return [str(csv_path) for csv_path in sorted(path.glob("*_Data.csv")) if csv_path.is_file()]
 
 
+def _resolve_input(args: argparse.Namespace) -> str:
+    """Return the resolved input path: ``--builtin-model`` takes precedence over ``--input``."""
+    bi = getattr(args, "builtin_model", None)
+    if bi:
+        return str(resolve_deck_path(bi))
+    if not getattr(args, "input", None):
+        return ""
+    return str(args.input)
+
+
 def run_command(args: argparse.Namespace) -> dict[str, Any]:
     """Execute a parsed CLI command and return a structured result."""
     if args.command == "init":
@@ -133,11 +144,28 @@ def run_command(args: argparse.Namespace) -> dict[str, Any]:
             active_profile=str(args.profile_name),
         )
 
+    if args.command == "models":
+        if args.models_action == "list":
+            return {"ok": True, "models": list_models()}
+        if args.models_action == "inspect":
+            try:
+                path = str(resolve_deck_path(args.model_id))
+            except (ValueError, FileNotFoundError) as exc:
+                return {"ok": False, "errors": [{"code": "MODEL_NOT_FOUND", "message": str(exc)}]}
+            return inspect_deck_file(path)
+        return {"ok": False, "errors": [{"code": "INVALID_MODELS_ACTION", "message": f"Unknown models action: {args.models_action}"}]}
+
     if args.command == "inspect-deck":
-        return inspect_deck_file(args.input)
+        input_path = _resolve_input(args)
+        if not input_path:
+            return {"ok": False, "errors": [{"code": "MISSING_INPUT", "message": "Either --input or --builtin-model is required."}]}
+        return inspect_deck_file(input_path)
 
     if args.command == "plan-workflow":
-        inspection = inspect_deck_file(args.input)
+        input_path = _resolve_input(args)
+        if not input_path:
+            return {"ok": False, "errors": [{"code": "MISSING_INPUT", "message": "Either --input or --builtin-model is required."}]}
+        inspection = inspect_deck_file(input_path)
         if not inspection.get("ok"):
             return inspection
         return plan_workflow(
@@ -149,11 +177,14 @@ def run_command(args: argparse.Namespace) -> dict[str, Any]:
         )
 
     if args.command == "patch-deck":
+        input_path = _resolve_input(args)
+        if not input_path:
+            return {"ok": False, "errors": [{"code": "MISSING_INPUT", "message": "Either --input or --builtin-model is required."}]}
         sp = getattr(args, "source_position", None)
         if sp is not None:
             sp = [float(v) for v in sp]
         result = patch_deck_file(
-            args.input, args.output,
+            input_path, args.output,
             nps=getattr(args, "nps", None),
             source_strategy=getattr(args, "source_strategy", "preserve_existing_source"),
             source_position=sp,
@@ -167,8 +198,11 @@ def run_command(args: argparse.Namespace) -> dict[str, Any]:
         return result
 
     if args.command == "prepare-workflow":
+        input_path = _resolve_input(args)
+        if not input_path:
+            return {"ok": False, "errors": [{"code": "MISSING_INPUT", "message": "Either --input or --builtin-model is required."}]}
         return prepare_workflow(
-            input_path=args.input,
+            input_path=input_path,
             work_dir=args.work_dir,
             workflow_mode=args.workflow_mode,
             source_strategy=getattr(args, "source_strategy", None),
@@ -200,6 +234,9 @@ def run_command(args: argparse.Namespace) -> dict[str, Any]:
         )
 
     if args.command == "run-workflow":
+        input_path = _resolve_input(args)
+        if not input_path:
+            return {"ok": False, "errors": [{"code": "MISSING_INPUT", "message": "Either --input or --builtin-model is required."}]}
         mpi_cfg = getattr(args, "mpi_config", None)
         mpi_cmd: str | None = None
         if mpi_cfg is not None and not getattr(args, "dry_run", True):
@@ -209,7 +246,7 @@ def run_command(args: argparse.Namespace) -> dict[str, Any]:
             except Exception as exc:
                 return {"ok": False, "errors": [str(exc)], "warnings": []}
         return run_workflow(
-            input_path=args.input,
+            input_path=input_path,
             work_dir=args.work_dir,
             workflow_mode=args.workflow_mode,
             source_strategy=getattr(args, "source_strategy", None),
@@ -472,18 +509,25 @@ def build_parser() -> argparse.ArgumentParser:
         subparser.add_argument("--dry-run", action="store_true", dest="dry_run", default=True)
         subparser.add_argument("--execute", action="store_false", dest="dry_run")
 
+    models_parser = subparsers.add_parser("models")
+    models_parser.add_argument("models_action", choices=["list", "inspect"])
+    models_parser.add_argument("model_id", nargs="?", default=None)
+
     inspect_parser = subparsers.add_parser("inspect-deck")
-    inspect_parser.add_argument("--input", required=True, dest="input")
+    inspect_parser.add_argument("--input", default=None, dest="input")
+    inspect_parser.add_argument("--builtin-model", default=None, dest="builtin_model")
 
     plan_parser = subparsers.add_parser("plan-workflow")
-    plan_parser.add_argument("--input", required=True, dest="input")
+    plan_parser.add_argument("--input", default=None, dest="input")
+    plan_parser.add_argument("--builtin-model", default=None, dest="builtin_model")
     plan_parser.add_argument("--workflow-mode", required=True, dest="workflow_mode")
     plan_parser.add_argument("--source-strategy", default=None, dest="source_strategy")
     plan_parser.add_argument("--postprocess", default="none", dest="postprocess")
     plan_parser.add_argument("--nps", default=None, dest="nps")
 
     patch_parser = subparsers.add_parser("patch-deck")
-    patch_parser.add_argument("--input", required=True, dest="input")
+    patch_parser.add_argument("--input", default=None, dest="input")
+    patch_parser.add_argument("--builtin-model", default=None, dest="builtin_model")
     patch_parser.add_argument("--output", required=True, dest="output")
     patch_parser.add_argument("--nps", default=None, dest="nps")
     patch_parser.add_argument("--source-strategy", default="preserve_existing_source", dest="source_strategy")
@@ -495,7 +539,8 @@ def build_parser() -> argparse.ArgumentParser:
     patch_parser.add_argument("--source-card-id", type=int, default=None, dest="source_card_id")
 
     prep_parser = subparsers.add_parser("prepare-workflow")
-    prep_parser.add_argument("--input", required=True, dest="input")
+    prep_parser.add_argument("--input", default=None, dest="input")
+    prep_parser.add_argument("--builtin-model", default=None, dest="builtin_model")
     prep_parser.add_argument("--work-dir", required=True, dest="work_dir")
     prep_parser.add_argument("--workflow-mode", required=True, dest="workflow_mode")
     prep_parser.add_argument("--source-strategy", default=None, dest="source_strategy")
@@ -589,7 +634,8 @@ def build_parser() -> argparse.ArgumentParser:
     runs_parser.add_argument("--confirm-mpi", action="store_true", default=False)
 
     runwf_parser = subparsers.add_parser("run-workflow")
-    runwf_parser.add_argument("--input", required=True, dest="input")
+    runwf_parser.add_argument("--input", default=None, dest="input")
+    runwf_parser.add_argument("--builtin-model", default=None, dest="builtin_model")
     runwf_parser.add_argument("--work-dir", required=True, dest="work_dir")
     runwf_parser.add_argument("--workflow-mode", required=True, dest="workflow_mode")
     runwf_parser.add_argument("--source-strategy", default=None, dest="source_strategy")

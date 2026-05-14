@@ -15,6 +15,8 @@
 | `prepare-disk-sweep` | Generate disk_tr1 distance sweep decks | No |
 | `run-disk-sweep` | Disk sweep → optionally run MCNP → optionally F8 postprocess | **Yes (if --execute)** |
 | `run-point-sweep` | Sweep → optionally run MCNP → optionally F8 postprocess | **Yes (if --execute)** |
+| `models list` | List registered built-in verified decks | No |
+| `models inspect` | Inspect a built-in model (alias for inspect-deck) | No |
 
 ## Current Boundaries
 
@@ -243,3 +245,89 @@ sp2 -21 1
 | `POSTPROCESS_ALL_FAILED` | Postprocess failed for every swept distance |
 | `SWEEP_ALL_FAILED` | Every distance point failed to prepare |
 | `PREPARE_FAILED` | A single prepare step returned an error |
+| `MODEL_NOT_FOUND` | Built-in model id not found in registry |
+| `MISSING_INPUT` | Neither `--input` nor `--builtin-model` was provided |
+| `UNKNOWN_REFERENCE_POINT` | Named reference point not found in profile or built-in constants |
+
+---
+
+## Built-in Models (v0.2)
+
+A minimal registry of verified MCNP decks shipped with the package.  Every
+built-in model is a real, physically validated deck.  No unverified
+detector sizes or geometries are included.
+
+### Available models
+
+| Model ID | Display Name | Source |
+|----------|-------------|--------|
+| `nai_3x3_verified` | 3x3 NaI(Tl) verified deck | A.txt — encapsulated Am-241 disk source, F8 pulse-height tally |
+
+**Only `nai_3x3_verified` exists.**  There is no 1/2 inch NaI, 2x2 NaI, or
+any other NaI size.  Do not assume unverified models are available.
+
+### Boundaries
+
+- **Built-in models still go through the full deck-aware workflow**: inspect → plan → patch → prepare → run → postprocess.  No shortcuts, no fixed-NaI scripts.
+- **Source strategy must still be explicit**: `preserve_existing_source`, `point_sdef_pos`, or `disk_tr1`.  There is no automatic source replacement for NaI models — no `encapsulated_disk_tr1`, no `custom_source_block`.
+- **No detector front-surface reference point in the model registry**: the `nai_3x3_verified` entry does **not** define `reference_points`, `front_surface`, `detector_front`, or `crystal_front`.  Reference points come from the **profile** (`~/.mcnp-research/profiles.yaml`) or the **built-in constants** (`crystal_front_surface`, `crystal_center`, `aluminum_shell_surface`).  Requesting an unknown reference point returns a structured error with code `UNKNOWN_REFERENCE_POINT`.  Use `validate_reference_point()` from the registry module for boundary checks.
+- **Explicit `--reference-position` always works**: sweep and prepare commands accept `--reference-position X Y Z` directly, no named reference point required.
+- **No geometry deduction from model name**: the display name "3x3 NaI(Tl)" does not imply z=0, z=-0.34, z=7.62, or any other surface position.
+- **Non-F8 tally rules unchanged**: run-only works regardless; csv/plot still requires F8.
+- **Safety gates unchanged**: real MPI execution requires `--execute --confirm-mpi --mpi-config`.
+- **MCNP5 compatibility**: the built-in fixture follows MCNP5 conventions — ≤80 columns, no tabs, valid continuation lines, no MCNP6-only syntax.
+
+### CLI: list and inspect
+
+```powershell
+# List all built-in models
+python -m mcnp_research_skill.cli models list
+
+# Inspect a built-in model (runs inspect-deck internally)
+python -m mcnp_research_skill.cli models inspect nai_3x3_verified
+```
+
+### CLI: prepare-workflow with built-in model (preserve_existing_source)
+
+```powershell
+python -m mcnp_research_skill.cli prepare-workflow `
+  --builtin-model nai_3x3_verified `
+  --work-dir runs/nai_preserve `
+  --workflow-mode patch-and-run `
+  --source-strategy preserve_existing_source `
+  --nps 1e7 `
+  --postprocess none
+```
+
+### CLI: prepare-workflow with built-in model (disk_tr1)
+
+```powershell
+python -m mcnp_research_skill.cli prepare-workflow `
+  --builtin-model nai_3x3_verified `
+  --work-dir runs/nai_disk_sweep `
+  --workflow-mode patch-and-run `
+  --source-strategy disk_tr1 `
+  --source-position 0 0 15 `
+  --source-radius 0.15 `
+  --source-energy 0.662 `
+  --nps 1e7 `
+  --postprocess none
+```
+
+### CLI: prepare-workflow with built-in model (point_sdef_pos)
+
+```powershell
+python -m mcnp_research_skill.cli prepare-workflow `
+  --builtin-model nai_3x3_verified `
+  --work-dir runs/nai_point_sweep `
+  --workflow-mode patch-and-run `
+  --source-strategy point_sdef_pos `
+  --source-position 0 0 20 `
+  --source-energy 0.662 `
+  --nps 1e7 `
+  --postprocess none
+```
+
+> The `--builtin-model` flag is also accepted by `inspect-deck`,
+> `plan-workflow`, `patch-deck`, and `run-workflow` as an alternative to
+> `--input`.  When both are given, `--builtin-model` takes precedence.
