@@ -27,13 +27,13 @@ def _expand_distances(
         try:
             return [float(d) for d in distances], []
         except (TypeError, ValueError):
-            return None, [f"Invalid distances: {distances!r}"]
+            return None, [{"code": "INVALID_DISTANCES", "message": f"Invalid distances: {distances!r}"}]
     if start is None or stop is None or step is None:
         return None, []
     if step <= 0:
-        return None, ["sweep step must be > 0"]
+        return None, [{"code": "INVALID_SWEEP_RANGE", "message": "sweep step must be > 0"}]
     if start > stop:
-        return None, ["sweep start must be <= stop"]
+        return None, [{"code": "INVALID_SWEEP_RANGE", "message": "sweep start must be <= stop"}]
     values: list[float] = []
     curr = float(start)
     end = float(stop)
@@ -87,21 +87,21 @@ def prepare_point_sweep(
 
     # ---- validate ----
     if axis not in VALID_AXES:
-        errors.append(f"Invalid axis '{axis}'; must be one of {sorted(VALID_AXES)}")
+        errors.append({"code": "INVALID_SWEEP_AXIS", "message": f"Invalid axis '{axis}'; must be one of {sorted(VALID_AXES)}"})
 
     try:
         ref_pos = [float(v) for v in reference_position]
         if len(ref_pos) != 3:
-            errors.append(f"reference_position must have exactly 3 values, got {len(ref_pos)}")
+            errors.append({"code": "INVALID_REFERENCE_POSITION", "message": f"reference_position must have exactly 3 values, got {len(ref_pos)}"})
     except (TypeError, ValueError):
-        errors.append(f"Invalid reference_position: {reference_position!r}")
+        errors.append({"code": "INVALID_REFERENCE_POSITION", "message": f"Invalid reference_position: {reference_position!r}"})
 
     try:
         energy = float(source_energy)
         if energy <= 0:
-            errors.append(f"source_energy must be positive, got {energy}")
+            errors.append({"code": "MISSING_SOURCE_ENERGY", "message": f"source_energy must be positive, got {energy}"})
     except (TypeError, ValueError):
-        errors.append(f"Invalid source_energy: {source_energy!r}")
+        errors.append({"code": "MISSING_SOURCE_ENERGY", "message": f"Invalid source_energy: {source_energy!r}"})
 
     dir_val = float(direction)
 
@@ -109,7 +109,7 @@ def prepare_point_sweep(
     if dist_errs:
         errors.extend(dist_errs)
     if dists is None:
-        errors.append("No distances specified; provide either --distances or --start/--stop/--step")
+        errors.append({"code": "INVALID_SWEEP_RANGE", "message": "No distances specified; provide either --distances or --start/--stop/--step"})
 
     if errors:
         return {"ok": False, "schema_version": "1.0", "input_path": str(in_path),
@@ -117,7 +117,7 @@ def prepare_point_sweep(
 
     if not in_path.exists():
         return {"ok": False, "schema_version": "1.0", "input_path": str(in_path),
-                "work_dir": str(wd), "errors": [f"Input file does not exist: {input_path}"], "warnings": []}
+                "work_dir": str(wd), "errors": [{"code": "INPUT_FILE_NOT_FOUND", "message": f"Input file does not exist: {input_path}"}], "warnings": []}
 
     # ---- process each distance ----
     wd.mkdir(parents=True, exist_ok=True)
@@ -140,6 +140,14 @@ def prepare_point_sweep(
             nps=nps,
             postprocess=postprocess,
         )
+        item_errors = prep.get("errors", [])
+        # Normalise string errors to structured dicts
+        normalised: list[dict] = []
+        for e in item_errors:
+            if isinstance(e, dict):
+                normalised.append(e)
+            else:
+                normalised.append({"code": "PREPARE_FAILED", "message": str(e)})
         entry = {
             "distance": d,
             "source_position": [float(v) for v in pos],
@@ -147,7 +155,7 @@ def prepare_point_sweep(
             "prepared_input_path": prep.get("prepared_input_path"),
             "ok": prep.get("ok", False),
             "blocked": prep.get("blocked", []),
-            "errors": prep.get("errors", []),
+            "errors": normalised,
             "warnings": prep.get("warnings", []),
         }
         items.append(entry)
@@ -179,7 +187,7 @@ def prepare_point_sweep(
 
     if not all_ok and prepared == 0:
         result["ok"] = False
-        result["errors"].append("SWEEP_ALL_FAILED: all distance points failed to prepare")
+        result["errors"].append({"code": "SWEEP_ALL_FAILED", "message": "All distance points failed to prepare"})
 
     # ---- write sweep manifest ----
     manifest_path = wd / "sweep_manifest.json"

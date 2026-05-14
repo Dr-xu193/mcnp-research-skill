@@ -59,39 +59,56 @@ def test_sweep_preserves_si_sp_tr(tmp_path):
 def test_missing_source_energy():
     r=prepare_point_sweep(input_path=Path("."),work_dir=Path("w"),distances=[10],source_energy="")
     assert r["ok"]==False
-    assert any("source_energy" in e.lower() for e in r["errors"])
+    assert any(e.get("code")=="MISSING_SOURCE_ENERGY" for e in r["errors"] if isinstance(e,dict))
 
 def test_invalid_axis():
     r=prepare_point_sweep(input_path=Path("."),work_dir=Path("w"),distances=[10],axis="q",source_energy=0.662)
-    assert r["ok"]==False; assert any("axis" in e.lower() for e in r["errors"])
+    assert r["ok"]==False
+    assert any(e.get("code")=="INVALID_SWEEP_AXIS" for e in r["errors"] if isinstance(e,dict))
 
 def test_invalid_range():
     r=prepare_point_sweep(input_path=Path("."),work_dir=Path("w"),start=10,stop=5,step=5,source_energy=0.662)
-    assert r["ok"]==False; assert any("start" in e.lower() for e in r["errors"])
+    assert r["ok"]==False
+    assert any(e.get("code")=="INVALID_SWEEP_RANGE" for e in r["errors"] if isinstance(e,dict))
     r2=prepare_point_sweep(input_path=Path("."),work_dir=Path("w"),start=5,stop=10,step=0,source_energy=0.662)
     assert r2["ok"]==False
+    assert any(e.get("code")=="INVALID_SWEEP_RANGE" for e in r2["errors"] if isinstance(e,dict))
 
 def test_invalid_reference():
     r=prepare_point_sweep(input_path=Path("."),work_dir=Path("w"),distances=[10],reference_position=(0,0),source_energy=0.662)
-    assert r["ok"]==False; assert any("reference_position" in e.lower() for e in r["errors"])
+    assert r["ok"]==False
+    assert any(e.get("code")=="INVALID_REFERENCE_POSITION" for e in r["errors"] if isinstance(e,dict))
+
+def test_input_file_not_found():
+    r=prepare_point_sweep(input_path=Path("/nonexistent/A.txt"),work_dir=Path("w"),distances=[10],source_energy=0.662)
+    assert r["ok"]==False
+    assert any(e.get("code")=="INPUT_FILE_NOT_FOUND" for e in r["errors"] if isinstance(e,dict))
 
 # ---- partial / all failure ----
 def test_partial_failure(tmp_path,monkeypatch):
     inp=tmp_path/"A.txt"; inp.write_text(F8,encoding="utf-8")
     calls=[0]
     def fake_prep(**kw):
-        calls[0]+=1; ok=calls[0]==1  # first ok, second fails
-        return {"ok":ok,"prepared_input_path":f"p{calls[0]}.txt","blocked":[],"errors":[] if ok else ["fail"],"warnings":[]}
+        calls[0]+=1; ok=calls[0]==1
+        return {"ok":ok,"prepared_input_path":f"p{calls[0]}.txt","blocked":[],"errors":[] if ok else ["string err"],"warnings":[]}
     monkeypatch.setattr("mcnp_research_skill.workflow.sweep.prepare_workflow",fake_prep)
     r=prepare_point_sweep(input_path=inp,work_dir=tmp_path/"w",distances=[10,20],source_energy=0.662)
     assert r["ok"]; assert r["prepared_count"]==1; assert r["failed_count"]==1
+    failed=[i for i in r["items"] if not i["ok"]][0]
+    assert isinstance(failed["errors"][0],dict)
+    assert failed["errors"][0].get("code")=="PREPARE_FAILED"
 
 def test_all_failure(tmp_path,monkeypatch):
     inp=tmp_path/"A.txt"; inp.write_text(F8,encoding="utf-8")
     def fake_prep(**kw): return {"ok":False,"prepared_input_path":"","blocked":[],"errors":["fail"],"warnings":[]}
     monkeypatch.setattr("mcnp_research_skill.workflow.sweep.prepare_workflow",fake_prep)
     r=prepare_point_sweep(input_path=inp,work_dir=tmp_path/"w",distances=[10,20],source_energy=0.662)
-    assert r["ok"]==False; assert any("SWEEP_ALL_FAILED" in e for e in r["errors"])
+    assert r["ok"]==False
+    assert any(e.get("code")=="SWEEP_ALL_FAILED" for e in r["errors"] if isinstance(e,dict))
+    # Per-item errors also structured
+    for item in r["items"]:
+        assert isinstance(item["errors"][0],dict)
+        assert item["errors"][0].get("code")=="PREPARE_FAILED"
 
 # ---- sweep manifest ----
 def test_sweep_manifest_written(tmp_path):
@@ -122,3 +139,4 @@ def test_cli_sweep_invalid_range(tmp_path):
         "--start","10","--stop","5","--step","5","--source-energy","0.662"],
         cwd=Path.cwd(),text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
     assert r.returncode!=0; p=json.loads(r.stdout); assert p["ok"]==False
+    assert any(e.get("code")=="INVALID_SWEEP_RANGE" for e in p["errors"] if isinstance(e,dict))
