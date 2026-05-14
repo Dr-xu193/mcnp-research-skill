@@ -2,7 +2,7 @@
 from __future__ import annotations
 import json, subprocess, sys
 from pathlib import Path
-from mcnp_research_skill.workflow.sweep import prepare_point_sweep
+from mcnp_research_skill.workflow.sweep import prepare_point_sweep, run_point_sweep
 
 def deck(*lines): return "\n".join(lines) + "\n"
 F8 = deck("test","sdef old source","f8:p,e 1","nps 100000")
@@ -137,6 +137,119 @@ def test_cli_sweep_invalid_range(tmp_path):
     r=subprocess.run([sys.executable,"-m","mcnp_research_skill.cli","prepare-point-sweep",
         "--input",str(inp),"--work-dir",str(tmp_path/"w"),
         "--start","10","--stop","5","--step","5","--source-energy","0.662"],
+        cwd=Path.cwd(),text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+    assert r.returncode!=0; p=json.loads(r.stdout); assert p["ok"]==False
+    assert any(e.get("code")=="INVALID_SWEEP_RANGE" for e in p["errors"] if isinstance(e,dict))
+
+
+# ---- run_point_sweep ----
+
+def test_run_sweep_dry_run(tmp_path):
+    inp=tmp_path/"A.txt"; inp.write_text(F8,encoding="utf-8")
+    r=run_point_sweep(input_path=inp,work_dir=tmp_path/"w",distances=[10,15],source_energy=0.662,execute=False)
+    assert r["ok"]; assert r["dry_run"]==True; assert r["executed"]==False
+    assert r["run"]["status"]=="skipped_dry_run"
+    assert r["runner_input_files"]==["d10_A.txt","d15_A.txt"]
+
+def test_run_sweep_execute_no_confirm(tmp_path):
+    inp=tmp_path/"A.txt"; inp.write_text(F8,encoding="utf-8")
+    r=run_point_sweep(input_path=inp,work_dir=tmp_path/"w",distances=[10],source_energy=0.662,execute=True,confirm_mpi=False)
+    assert r["ok"]==False
+    assert any(e.get("code")=="MISSING_CONFIRM_MPI" for e in r["errors"] if isinstance(e,dict))
+
+def test_run_sweep_execute_no_mpi_config(tmp_path):
+    inp=tmp_path/"A.txt"; inp.write_text(F8,encoding="utf-8")
+    r=run_point_sweep(input_path=inp,work_dir=tmp_path/"w",distances=[10],source_energy=0.662,execute=True,confirm_mpi=True,mpi_config_path=None)
+    assert r["ok"]==False
+    assert any(e.get("code")=="MISSING_MPI_CONFIG" for e in r["errors"] if isinstance(e,dict))
+
+def test_run_sweep_prepare_all_failed_no_runner(tmp_path,monkeypatch):
+    inp=tmp_path/"A.txt"; inp.write_text(F8,encoding="utf-8")
+    def fail_prep(**kw): return {"ok":False,"prepared_count":0,"items":[{"ok":False,"distance":10}],"errors":[{"code":"X"}],"warnings":[],"artifacts":{}}
+    monkeypatch.setattr("mcnp_research_skill.workflow.sweep.prepare_point_sweep",fail_prep)
+    r=run_point_sweep(input_path=inp,work_dir=tmp_path/"w",distances=[10],source_energy=0.662,execute=True,confirm_mpi=True,mpi_config_path="cfg")
+    assert r["ok"]==False
+
+def test_run_sweep_execute_mock_runner(tmp_path,monkeypatch):
+    inp=tmp_path/"A.txt"; inp.write_text(F8,encoding="utf-8")
+    cfg=tmp_path/"cfg.yaml"; cfg.write_text('mpi_command: "echo"\n',encoding="utf-8")
+    calls=[]
+    def fake_runner(**kw): calls.append(kw); return {"ok":True,"commands":[],"completed":[],"failed":[],"warnings":[],"errors":[]}
+    monkeypatch.setattr("mcnp_research_skill.workflow.sweep.run_mpi_batch",fake_runner)
+    r=run_point_sweep(input_path=inp,work_dir=tmp_path/"w",distances=[10,15],source_energy=0.662,execute=True,confirm_mpi=True,mpi_config_path=str(cfg))
+    assert r["ok"]; assert r["executed"]==True
+    assert len(calls)==1; assert calls[0]["input_files"]==["d10_A.txt","d15_A.txt"]
+
+def test_run_sweep_runner_exception(tmp_path,monkeypatch):
+    inp=tmp_path/"A.txt"; inp.write_text(F8,encoding="utf-8")
+    cfg=tmp_path/"cfg.yaml"; cfg.write_text('mpi_command: "echo"\n',encoding="utf-8")
+    def crash(**kw): raise RuntimeError("boom")
+    monkeypatch.setattr("mcnp_research_skill.workflow.sweep.run_mpi_batch",crash)
+    r=run_point_sweep(input_path=inp,work_dir=tmp_path/"w",distances=[10],source_energy=0.662,execute=True,confirm_mpi=True,mpi_config_path=str(cfg))
+    assert r["ok"]==False; assert r["run"]["status"]=="failed"
+    assert any(e.get("code")=="RUNNER_FAILED" for e in r["errors"] if isinstance(e,dict))
+
+def test_run_sweep_dry_run_postprocess_planned(tmp_path):
+    inp=tmp_path/"A.txt"; inp.write_text(F8,encoding="utf-8")
+    r=run_point_sweep(input_path=inp,work_dir=tmp_path/"w",distances=[10],source_energy=0.662,postprocess="csv",execute=False)
+    assert r["ok"]; assert r["postprocess_status"]=="planned_not_executed"
+
+def test_run_sweep_postprocess_mock(tmp_path,monkeypatch):
+    inp=tmp_path/"A.txt"; inp.write_text(F8,encoding="utf-8")
+    cfg=tmp_path/"cfg.yaml"; cfg.write_text('mpi_command: "echo"\n',encoding="utf-8")
+    def fake_runner(**kw): return {"ok":True,"commands":[],"completed":[],"failed":[],"warnings":[],"errors":[]}
+    monkeypatch.setattr("mcnp_research_skill.workflow.sweep.run_mpi_batch",fake_runner)
+    pp_calls=[]
+    def fake_pp(**kw): pp_calls.append(kw); return {"ok":True,"artifacts":{"csv":"c.csv"},"blocked":[],"errors":[],"warnings":[]}
+    monkeypatch.setattr("mcnp_research_skill.workflow.sweep.postprocess_workflow",fake_pp)
+    r=run_point_sweep(input_path=inp,work_dir=tmp_path/"w",distances=[10,15],source_energy=0.662,postprocess="csv",execute=True,confirm_mpi=True,mpi_config_path=str(cfg))
+    assert r["ok"]; assert len(pp_calls)==2
+
+def test_run_sweep_postprocess_partial_failure(tmp_path,monkeypatch):
+    inp=tmp_path/"A.txt"; inp.write_text(F8,encoding="utf-8")
+    cfg=tmp_path/"cfg.yaml"; cfg.write_text('mpi_command: "echo"\n',encoding="utf-8")
+    def fake_runner(**kw): return {"ok":True,"commands":[],"completed":[],"failed":[],"warnings":[],"errors":[]}
+    monkeypatch.setattr("mcnp_research_skill.workflow.sweep.run_mpi_batch",fake_runner)
+    cc=[0]
+    def fake_pp(**kw): cc[0]+=1; ok=cc[0]==1; return {"ok":ok,"artifacts":{},"blocked":[],"errors":[] if ok else ["fail"],"warnings":[]}
+    monkeypatch.setattr("mcnp_research_skill.workflow.sweep.postprocess_workflow",fake_pp)
+    r=run_point_sweep(input_path=inp,work_dir=tmp_path/"w",distances=[10,15],source_energy=0.662,postprocess="csv",execute=True,confirm_mpi=True,mpi_config_path=str(cfg))
+    assert r["ok"]; assert r["postprocess_summary"]["succeeded"]==1; assert r["postprocess_summary"]["failed"]==1
+
+def test_run_sweep_postprocess_all_failed(tmp_path,monkeypatch):
+    inp=tmp_path/"A.txt"; inp.write_text(F8,encoding="utf-8")
+    cfg=tmp_path/"cfg.yaml"; cfg.write_text('mpi_command: "echo"\n',encoding="utf-8")
+    def fake_runner(**kw): return {"ok":True,"commands":[],"completed":[],"failed":[],"warnings":[],"errors":[]}
+    monkeypatch.setattr("mcnp_research_skill.workflow.sweep.run_mpi_batch",fake_runner)
+    def fake_pp(**kw): return {"ok":False,"artifacts":{},"blocked":[],"errors":["fail"],"warnings":[]}
+    monkeypatch.setattr("mcnp_research_skill.workflow.sweep.postprocess_workflow",fake_pp)
+    r=run_point_sweep(input_path=inp,work_dir=tmp_path/"w",distances=[10],source_energy=0.662,postprocess="csv",execute=True,confirm_mpi=True,mpi_config_path=str(cfg))
+    assert r["ok"]==False
+    assert any(e.get("code")=="POSTPROCESS_ALL_FAILED" for e in r["errors"] if isinstance(e,dict))
+
+# ---- CLI run-point-sweep ----
+def test_cli_run_sweep_dry_run(tmp_path):
+    inp=tmp_path/"A.txt"; inp.write_text(F8,encoding="utf-8")
+    r=subprocess.run([sys.executable,"-m","mcnp_research_skill.cli","run-point-sweep",
+        "--input",str(inp),"--work-dir",str(tmp_path/"w"),
+        "--distances","10","20","--source-energy","0.662","--dry-run"],
+        cwd=Path.cwd(),text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+    assert r.returncode==0; p=json.loads(r.stdout); assert p["ok"]; assert p["dry_run"]==True
+
+def test_cli_run_sweep_execute_no_confirm(tmp_path):
+    inp=tmp_path/"A.txt"; inp.write_text(F8,encoding="utf-8")
+    r=subprocess.run([sys.executable,"-m","mcnp_research_skill.cli","run-point-sweep",
+        "--input",str(inp),"--work-dir",str(tmp_path/"w"),
+        "--distances","10","--source-energy","0.662","--execute"],
+        cwd=Path.cwd(),text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+    assert r.returncode!=0; p=json.loads(r.stdout)
+    assert any("MISSING_CONFIRM_MPI" in str(e) for e in p.get("errors",[]))
+
+def test_cli_run_sweep_invalid_range(tmp_path):
+    inp=tmp_path/"A.txt"; inp.write_text(F8,encoding="utf-8")
+    r=subprocess.run([sys.executable,"-m","mcnp_research_skill.cli","run-point-sweep",
+        "--input",str(inp),"--work-dir",str(tmp_path/"w"),
+        "--start","10","--stop","5","--step","5","--source-energy","0.662","--dry-run"],
         cwd=Path.cwd(),text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
     assert r.returncode!=0; p=json.loads(r.stdout); assert p["ok"]==False
     assert any(e.get("code")=="INVALID_SWEEP_RANGE" for e in p["errors"] if isinstance(e,dict))

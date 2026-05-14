@@ -18,7 +18,7 @@ from .workflow.batch import batch_workflow
 from .workflow.postprocess import postprocess_workflow
 from .workflow.prepare import prepare_workflow
 from .workflow.run import run_workflow
-from .workflow.sweep import prepare_point_sweep
+from .workflow.sweep import prepare_point_sweep, run_point_sweep
 from .mcnp_input.generator import generate_mcnp_inputs
 from .mcnp_output.tally_extractor import extract_tally_csvs
 from .mcnp_run.mpi_runner import run_mpi_batch
@@ -218,6 +218,29 @@ def run_command(args: argparse.Namespace) -> dict[str, Any]:
             source_position=getattr(args, "source_position", None),
             source_energy=getattr(args, "source_energy", None),
             source_particle=getattr(args, "source_particle", None),
+        )
+
+    if args.command == "run-point-sweep":
+        return run_point_sweep(
+            input_path=args.input,
+            work_dir=args.work_dir,
+            distances=getattr(args, "distances", None),
+            start=getattr(args, "start", None),
+            stop=getattr(args, "stop", None),
+            step=getattr(args, "step", None),
+            axis=getattr(args, "axis", "z"),
+            reference_position=getattr(args, "reference_position", (0, 0, 0)),
+            direction=getattr(args, "direction", 1),
+            source_energy=args.source_energy,
+            source_particle=getattr(args, "source_particle", None),
+            nps=getattr(args, "nps", None),
+            postprocess=getattr(args, "postprocess", "none"),
+            mpi_config_path=getattr(args, "mpi_config", None),
+            execute=not bool(getattr(args, "dry_run", True)),
+            confirm_mpi=bool(getattr(args, "confirm_mpi", False)),
+            mcnp_outputs=getattr(args, "mcnp_outputs", None),
+            csv_dir=getattr(args, "csv_dir", None),
+            plot_dir=getattr(args, "plot_dir", None),
         )
 
     if args.command == "prepare-point-sweep":
@@ -453,6 +476,28 @@ def build_parser() -> argparse.ArgumentParser:
     sweep_parser.add_argument("--source-particle", default=None, dest="source_particle")
     sweep_parser.add_argument("--nps", default=None, dest="nps")
     sweep_parser.add_argument("--postprocess", default="none", dest="postprocess")
+
+    runs_parser = subparsers.add_parser("run-point-sweep")
+    runs_parser.add_argument("--input", required=True, dest="input")
+    runs_parser.add_argument("--work-dir", required=True, dest="work_dir")
+    runs_parser.add_argument("--distances", nargs="*", type=float, default=None, dest="distances")
+    runs_parser.add_argument("--start", type=float, default=None, dest="start")
+    runs_parser.add_argument("--stop", type=float, default=None, dest="stop")
+    runs_parser.add_argument("--step", type=float, default=None, dest="step")
+    runs_parser.add_argument("--axis", default="z", dest="axis")
+    runs_parser.add_argument("--reference-position", nargs=3, type=float, default=(0, 0, 0), dest="reference_position")
+    runs_parser.add_argument("--direction", type=float, default=1, dest="direction")
+    runs_parser.add_argument("--source-energy", type=float, required=True, dest="source_energy")
+    runs_parser.add_argument("--source-particle", default=None, dest="source_particle")
+    runs_parser.add_argument("--nps", default=None, dest="nps")
+    runs_parser.add_argument("--postprocess", default="none", dest="postprocess")
+    runs_parser.add_argument("--mpi-config", default=None, dest="mpi_config")
+    runs_parser.add_argument("--mcnp-outputs", nargs="*", default=None, dest="mcnp_outputs")
+    runs_parser.add_argument("--csv-dir", default=None, dest="csv_dir")
+    runs_parser.add_argument("--plot-dir", default=None, dest="plot_dir")
+    runs_parser.add_argument("--dry-run", action="store_true", dest="dry_run", default=True)
+    runs_parser.add_argument("--execute", action="store_false", dest="dry_run")
+    runs_parser.add_argument("--confirm-mpi", action="store_true", default=False)
 
     runwf_parser = subparsers.add_parser("run-workflow")
     runwf_parser.add_argument("--input", required=True, dest="input")
