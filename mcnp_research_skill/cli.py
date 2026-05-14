@@ -14,6 +14,7 @@ from .diagnostics import run_doctor
 from .mcnp_input.inspection import inspect_deck_file
 from .mcnp_input.patching import patch_deck_file
 from .workflow.planner import plan_workflow
+from .workflow.prepare import prepare_workflow
 from .mcnp_input.generator import generate_mcnp_inputs
 from .mcnp_output.tally_extractor import extract_tally_csvs
 from .mcnp_run.mpi_runner import run_mpi_batch
@@ -149,9 +150,18 @@ def run_command(args: argparse.Namespace) -> dict[str, Any]:
             nps=getattr(args, "nps", None),
             source_strategy=getattr(args, "source_strategy", "preserve_existing_source"),
         )
-        # Don't leak full deck text to stdout
         result.pop("text", None)
         return result
+
+    if args.command == "prepare-workflow":
+        return prepare_workflow(
+            input_path=args.input,
+            work_dir=args.work_dir,
+            workflow_mode=args.workflow_mode,
+            source_strategy=getattr(args, "source_strategy", None),
+            postprocess=getattr(args, "postprocess", "none"),
+            nps=getattr(args, "nps", None),
+        )
 
     if args.command == "fit-geb-from-spe":
         kwargs_spe: dict[str, Any] = {"spe_files": args.spe_files}
@@ -324,6 +334,14 @@ def build_parser() -> argparse.ArgumentParser:
     patch_parser.add_argument("--output", required=True, dest="output")
     patch_parser.add_argument("--nps", default=None, dest="nps")
     patch_parser.add_argument("--source-strategy", default="preserve_existing_source", dest="source_strategy")
+
+    prep_parser = subparsers.add_parser("prepare-workflow")
+    prep_parser.add_argument("--input", required=True, dest="input")
+    prep_parser.add_argument("--work-dir", required=True, dest="work_dir")
+    prep_parser.add_argument("--workflow-mode", required=True, dest="workflow_mode")
+    prep_parser.add_argument("--source-strategy", default=None, dest="source_strategy")
+    prep_parser.add_argument("--postprocess", default="none", dest="postprocess")
+    prep_parser.add_argument("--nps", default=None, dest="nps")
 
     spe_parser = subparsers.add_parser("fit-geb-from-spe")
     spe_parser.add_argument("--spe", action="append", required=True, dest="spe_files")
