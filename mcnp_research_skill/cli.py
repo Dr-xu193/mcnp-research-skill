@@ -18,6 +18,7 @@ from .workflow.batch import batch_workflow
 from .workflow.postprocess import postprocess_workflow
 from .workflow.prepare import prepare_workflow
 from .workflow.run import run_workflow
+from .workflow.sweep import prepare_point_sweep
 from .mcnp_input.generator import generate_mcnp_inputs
 from .mcnp_output.tally_extractor import extract_tally_csvs
 from .mcnp_run.mpi_runner import run_mpi_batch
@@ -217,6 +218,23 @@ def run_command(args: argparse.Namespace) -> dict[str, Any]:
             source_position=getattr(args, "source_position", None),
             source_energy=getattr(args, "source_energy", None),
             source_particle=getattr(args, "source_particle", None),
+        )
+
+    if args.command == "prepare-point-sweep":
+        return prepare_point_sweep(
+            input_path=args.input,
+            work_dir=args.work_dir,
+            distances=getattr(args, "distances", None),
+            start=getattr(args, "start", None),
+            stop=getattr(args, "stop", None),
+            step=getattr(args, "step", None),
+            axis=getattr(args, "axis", "z"),
+            reference_position=getattr(args, "reference_position", (0, 0, 0)),
+            direction=getattr(args, "direction", 1),
+            source_energy=args.source_energy,
+            source_particle=getattr(args, "source_particle", None),
+            nps=getattr(args, "nps", None),
+            postprocess=getattr(args, "postprocess", "none"),
         )
 
     if args.command == "postprocess-workflow":
@@ -420,6 +438,21 @@ def build_parser() -> argparse.ArgumentParser:
     prep_parser.add_argument("--source-position", nargs=3, type=float, default=None, dest="source_position")
     prep_parser.add_argument("--source-energy", type=float, default=None, dest="source_energy")
     prep_parser.add_argument("--source-particle", default=None, dest="source_particle")
+
+    sweep_parser = subparsers.add_parser("prepare-point-sweep")
+    sweep_parser.add_argument("--input", required=True, dest="input")
+    sweep_parser.add_argument("--work-dir", required=True, dest="work_dir")
+    sweep_parser.add_argument("--distances", nargs="*", type=float, default=None, dest="distances")
+    sweep_parser.add_argument("--start", type=float, default=None, dest="start")
+    sweep_parser.add_argument("--stop", type=float, default=None, dest="stop")
+    sweep_parser.add_argument("--step", type=float, default=None, dest="step")
+    sweep_parser.add_argument("--axis", default="z", dest="axis")
+    sweep_parser.add_argument("--reference-position", nargs=3, type=float, default=(0, 0, 0), dest="reference_position")
+    sweep_parser.add_argument("--direction", type=float, default=1, dest="direction")
+    sweep_parser.add_argument("--source-energy", type=float, required=True, dest="source_energy")
+    sweep_parser.add_argument("--source-particle", default=None, dest="source_particle")
+    sweep_parser.add_argument("--nps", default=None, dest="nps")
+    sweep_parser.add_argument("--postprocess", default="none", dest="postprocess")
 
     runwf_parser = subparsers.add_parser("run-workflow")
     runwf_parser.add_argument("--input", required=True, dest="input")
