@@ -388,3 +388,90 @@ def test_generator_uses_profile_name_match_for_metadata(tmp_path: Path):
     assert result["metadata"]["reference_short"] == "Lab Reference Point"
     # z = 5.0 - 10.0 = -5.0
     assert "TR1 0 0 -5.0000" in result["planned_files"][0]["content_preview"]
+
+
+# ---------------------------------------------------------------------------
+# nuclides profile support
+# ---------------------------------------------------------------------------
+
+
+def test_generator_uses_profile_single_energy(tmp_path: Path):
+    base_file = write_base(tmp_path / "b.txt", base_model())
+    nuclides = {"single_energy": {"Test-100": [0.1]}}
+    result = generate_mcnp_inputs(
+        str(base_file), str(tmp_path / "out"), 20.0, "crystal_center",
+        "10000000", energies=[0.1], dry_run=True, nuclides=nuclides,
+    )
+    assert result["ok"] is True
+    planned = result["planned_files"][0]
+    assert planned["meta_id"] == "Test-100 (100 keV)"
+    assert "erg=0.1" in planned["content_preview"]
+
+
+def test_generator_profile_energy_overrides_builtin(tmp_path: Path):
+    base_file = write_base(tmp_path / "b.txt", base_model())
+    nuclides = {"single_energy": {"Cs-137": [0.700]}}
+    result = generate_mcnp_inputs(
+        str(base_file), str(tmp_path / "out"), 20.0, "crystal_center",
+        "10000000", energies=[0.700], dry_run=True, nuclides=nuclides,
+    )
+    assert result["ok"] is True
+    planned = result["planned_files"][0]
+    assert planned["meta_id"] == "Cs-137 (700 keV)"
+    assert "erg=0.7" in planned["content_preview"]
+
+
+def test_generator_profile_composite_source(tmp_path: Path):
+    base_file = write_base(tmp_path / "b.txt", base_model())
+    nuclides = {
+        "composite_sources": {
+            "test_cs": {
+                "meta_id": "Test_Composite",
+                "cards": "si2 L 0.1 0.2\nsp2 1.0 1.0\n",
+                "aliases": ["test"],
+            },
+        },
+    }
+    result = generate_mcnp_inputs(
+        str(base_file), str(tmp_path / "out"), 20.0, "crystal_center",
+        "10000000", energies=[], composite_sources=["test"], dry_run=True,
+        nuclides=nuclides,
+    )
+    assert result["ok"] is True
+    planned = result["planned_files"][0]
+    assert planned["meta_id"] == "Test_Composite"
+    content = planned["content_preview"]
+    assert "si2 L 0.1 0.2" in content
+    assert "sp2 1.0 1.0" in content
+
+
+def test_generator_nuclides_bad_energy_raises(tmp_path: Path):
+    base_file = write_base(tmp_path / "b.txt", base_model())
+    nuclides = {"single_energy": {"Bad": ["not_a_number"]}}
+    result = generate_mcnp_inputs(
+        str(base_file), str(tmp_path / "out"), 20.0, "crystal_center",
+        "10000000", energies=[], dry_run=True, nuclides=nuclides,
+    )
+    assert result["ok"] is False
+    assert any("Bad" in e for e in result["errors"])
+
+
+def test_generator_nuclides_bad_composite_raises(tmp_path: Path):
+    base_file = write_base(tmp_path / "b.txt", base_model())
+    nuclides = {"composite_sources": {"bad": {"meta_id": "X"}}}  # missing cards
+    result = generate_mcnp_inputs(
+        str(base_file), str(tmp_path / "out"), 20.0, "crystal_center",
+        "10000000", energies=[], dry_run=True, nuclides=nuclides,
+    )
+    assert result["ok"] is False
+    assert any("cards" in e.lower() for e in result["errors"])
+
+
+def test_generator_without_nuclides_uses_defaults(tmp_path: Path):
+    base_file = write_base(tmp_path / "b.txt", base_model())
+    result = generate_mcnp_inputs(
+        str(base_file), str(tmp_path / "out"), 20.0, "crystal_center",
+        "10000000", energies=[0.662], dry_run=True,
+    )
+    assert result["ok"] is True
+    assert result["planned_files"][0]["meta_id"] == "Cs-137 (662 keV)"

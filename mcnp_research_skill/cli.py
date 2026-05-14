@@ -165,6 +165,7 @@ def run_command(args: argparse.Namespace) -> dict[str, Any]:
 
             active = load_active_profile(path=pp, profile_name=pn)
             kwargs_batch["reference_points"] = active.get("detector", {}).get("reference_points", {})
+            kwargs_batch["nuclides"] = active.get("nuclides")
         return run_batch_pipeline(config, **kwargs_batch)
 
     if args.command == "validate-run":
@@ -185,6 +186,7 @@ def run_command(args: argparse.Namespace) -> dict[str, Any]:
 
             active = load_active_profile(path=profile_path, profile_name=profile_name)
             kwargs["reference_points"] = active.get("detector", {}).get("reference_points", {})
+            kwargs["nuclides"] = active.get("nuclides")
         return generate_mcnp_inputs(**kwargs)
 
     if args.command == "run-mpi":
@@ -226,6 +228,7 @@ def run_command(args: argparse.Namespace) -> dict[str, Any]:
 
             active = load_active_profile(path=pp, profile_name=pn)
             kwargs["reference_points"] = active.get("detector", {}).get("reference_points", {})
+            kwargs["nuclides"] = active.get("nuclides")
         return run_core_pipeline(config, **kwargs)
 
     return {"ok": False, "errors": [f"Unsupported command: {args.command}"], "warnings": []}

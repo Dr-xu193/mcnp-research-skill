@@ -541,3 +541,178 @@ def test_batch_cli_bad_reference_point_returns_json_error(tmp_path: Path):
     payload = json.loads(completed.stdout)
     assert payload["ok"] is False
     assert any("ghost_point" in e for e in payload["errors"])
+
+
+# ---------------------------------------------------------------------------
+# generate-inputs with profile nuclides
+# ---------------------------------------------------------------------------
+
+
+def _write_nuclides_profiles(path: Path) -> Path:
+    path.write_text(
+        "active_profile: lab2\n"
+        "profiles:\n"
+        "  lab2:\n"
+        "    detector:\n"
+        "      reference_points:\n"
+        "        crystal_center:\n"
+        '          name: "几何中心"\n'
+        "          z: 3.81\n"
+        '          short_label: "Center"\n'
+        "    nuclides:\n"
+        "      single_energy:\n"
+        "        Test-100:\n"
+        "        - 0.1\n"
+        "      composite_sources: {}\n",
+        encoding="utf-8",
+    )
+    return path
+
+
+def test_generate_inputs_profile_custom_nuclide(tmp_path: Path):
+    base_file = tmp_path / "b.txt"
+    base_file.write_text("f8:p,e 1\nnps 1\n", encoding="utf-8")
+    profiles_path = _write_nuclides_profiles(tmp_path / "profiles.yaml")
+    config_path = _write_minimal_config(
+        tmp_path / "cfg.yaml", base_file, tmp_path / "work",
+        reference_point="crystal_center",
+    )
+    # Override config energies to use the custom nuclide
+    config_path.write_text(
+        config_path.read_text(encoding="utf-8").replace(
+            "energies:\n  - 0.662", "energies:\n  - 0.1"
+        ),
+        encoding="utf-8",
+    )
+
+    completed = subprocess.run(
+        [
+            sys.executable, "-m", "mcnp_research_skill.cli", "generate-inputs",
+            "--config", str(config_path),
+            "--profile-path", str(profiles_path),
+            "--profile-name", "lab2",
+            "--dry-run",
+        ],
+        cwd=Path.cwd(), text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    )
+    assert completed.returncode == 0
+    payload = json.loads(completed.stdout)
+    assert payload["ok"] is True
+    content = payload["planned_files"][0]["content_preview"]
+    assert "Test-100" in content
+    assert "erg=0.1" in content
+
+
+def test_pipeline_cli_with_profile_nuclides(tmp_path: Path):
+    base_file = tmp_path / "b.txt"
+    base_file.write_text("f8:p,e 1\nnps 1\n", encoding="utf-8")
+    profiles_path = _write_nuclides_profiles(tmp_path / "profiles.yaml")
+    output_dir = tmp_path / "work"
+    output_dir.mkdir()
+    (output_dir / "1.txt").write_text("e8 0 0.1\nf8:p,e 1\nnps 1\n", encoding="utf-8")
+    (output_dir / "result.txt").write_text(
+        "header\n     energy\n  0.100  1.0  0.01\n total  1.0  0.01\n",
+        encoding="utf-8",
+    )
+    (output_dir / "existing_Data.csv").write_text(
+        "Energy (MeV),Tally (Counts/Particle),Relative Error\n0.1,1.0,0.01\n",
+        encoding="utf-8",
+    )
+    config_path = _write_pipeline_config(
+        tmp_path / "cfg.yaml", base_file, output_dir, ref="crystal_center",
+    )
+    config_path.write_text(
+        config_path.read_text(encoding="utf-8").replace(
+            "energies:\n  - 0.662", "energies:\n  - 0.1"
+        ),
+        encoding="utf-8",
+    )
+
+    completed = subprocess.run(
+        [
+            sys.executable, "-m", "mcnp_research_skill.cli", "run-core-pipeline",
+            "--config", str(config_path),
+            "--profile-path", str(profiles_path),
+            "--profile-name", "lab2",
+            "--dry-run",
+        ],
+        cwd=Path.cwd(), text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    )
+    assert completed.returncode == 0
+    payload = json.loads(completed.stdout)
+    gen = payload["steps"]["generate_inputs"]
+    content = gen["planned_files"][0]["content_preview"]
+    assert "Test-100" in content
+
+
+def test_batch_cli_with_profile_nuclides(tmp_path: Path):
+    base_file = tmp_path / "A.txt"
+    base_file.write_text("f8:p,e 1\nnps 1\n", encoding="utf-8")
+    profiles_path = _write_nuclides_profiles(tmp_path / "profiles.yaml")
+    output_dir = tmp_path / "run_test"
+
+    completed = subprocess.run(
+        [
+            sys.executable, "-m", "mcnp_research_skill.cli", "batch-run",
+            "--base-file", str(base_file),
+            "--output-dir", str(output_dir),
+            "--reference-point", "crystal_center",
+            "--nps", "1000000",
+            "--distance-start", "10",
+            "--distance-end", "10",
+            "--distance-step", "10",
+            "--custom-energy-kev", "100",  # 0.1 MeV → Test-100
+            "--mpi-command", "echo",
+            "--profile-path", str(profiles_path),
+            "--profile-name", "lab2",
+            "--dry-run",
+        ],
+        cwd=Path.cwd(), text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    )
+    assert completed.returncode == 0
+    payload = json.loads(completed.stdout)
+    assert payload["ok"] is True
+    subrun = payload["subruns"][0]
+    gen = subrun["result"]["steps"]["generate_inputs"]
+    content = gen["planned_files"][0]["content_preview"]
+    # custom_energy 0.1 MeV → label should reflect 100 keV
+    assert "100.00keV" in content
+
+
+def test_generate_inputs_bad_nuclide_energy_returns_json_error(tmp_path: Path):
+    base_file = tmp_path / "b.txt"
+    base_file.write_text("f8:p,e 1\nnps 1\n", encoding="utf-8")
+    profiles = tmp_path / "profiles.yaml"
+    profiles.write_text(
+        "active_profile: lab2\n"
+        "profiles:\n"
+        "  lab2:\n"
+        "    detector:\n"
+        "      reference_points:\n"
+        "        crystal_center:\n"
+        '          name: "几何中心"\n'
+        "          z: 3.81\n"
+        "    nuclides:\n"
+        "      single_energy:\n"
+        "        Bad:\n"
+        "        - not_a_number\n",
+        encoding="utf-8",
+    )
+    config_path = _write_minimal_config(
+        tmp_path / "cfg.yaml", base_file, tmp_path / "work",
+    )
+
+    completed = subprocess.run(
+        [
+            sys.executable, "-m", "mcnp_research_skill.cli", "generate-inputs",
+            "--config", str(config_path),
+            "--profile-path", str(profiles),
+            "--profile-name", "lab2",
+            "--dry-run",
+        ],
+        cwd=Path.cwd(), text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    )
+    assert completed.returncode != 0
+    payload = json.loads(completed.stdout)
+    assert payload["ok"] is False
+    assert any("Bad" in e for e in payload["errors"])

@@ -70,7 +70,7 @@ def test_batch_execute_writes_manifest_with_fake_core_pipeline(tmp_path: Path, m
     output_dir = tmp_path / "run_663"
     seen_configs: list[dict[str, object]] = []
 
-    def fake_run_core_pipeline(config: dict, dry_run: bool, confirm_mpi: bool, reference_points=None):  # noqa: ANN001
+    def fake_run_core_pipeline(config: dict, dry_run: bool, confirm_mpi: bool, reference_points=None, nuclides=None):  # noqa: ANN001
         seen_configs.append(config)
         assert dry_run is False
         assert confirm_mpi is True
@@ -166,7 +166,7 @@ def test_batch_passes_reference_points_to_subruns(tmp_path: Path, monkeypatch) -
     seen_rps: list[dict | None] = []
 
     def fake_run_core_pipeline(
-        config: dict, dry_run: bool, confirm_mpi: bool, reference_points=None
+        config: dict, dry_run: bool, confirm_mpi: bool, reference_points=None, nuclides=None
     ):  # noqa: ANN001
         seen_rps.append(reference_points)
         return {
@@ -200,7 +200,7 @@ def test_batch_without_reference_points_passes_none(tmp_path: Path, monkeypatch)
     seen_rps: list[dict | None] = []
 
     def fake_run_core_pipeline(
-        config: dict, dry_run: bool, confirm_mpi: bool, reference_points=None
+        config: dict, dry_run: bool, confirm_mpi: bool, reference_points=None, nuclides=None
     ):  # noqa: ANN001
         seen_rps.append(reference_points)
         return {

@@ -45,12 +45,16 @@ def _base_result(
     }
 
 
-def _normalize_composite_sources(composite_sources: list[str] | None) -> tuple[list[str], list[str]]:
+def _normalize_composite_sources(
+    composite_sources: list[str] | None,
+    aliases: dict | None = None,
+) -> tuple[list[str], list[str]]:
     normalized: list[str] = []
     errors: list[str] = []
+    lookup = aliases if aliases is not None else COMPOSITE_ALIASES
     for source in composite_sources or []:
         key = str(source).strip().lower().replace(" ", "")
-        canonical = COMPOSITE_ALIASES.get(key)
+        canonical = lookup.get(key)
         if canonical is None:
             errors.append(f"Invalid composite source: {source}")
             continue
@@ -59,9 +63,14 @@ def _normalize_composite_sources(composite_sources: list[str] | None) -> tuple[l
     return normalized, errors
 
 
-def _resolve_energy_labels(energies: list[float] | None) -> tuple[list[tuple[str, float]], list[str]]:
+def _resolve_energy_labels(
+    energies: list[float] | None,
+    energy_dict: dict | None = None,
+) -> tuple[list[tuple[str, float]], list[str]]:
+    if energy_dict is None:
+        energy_dict = ENERGY_DICT
     if energies is None:
-        return list(ENERGY_DICT.items()), []
+        return list(energy_dict.items()), []
 
     resolved: list[tuple[str, float]] = []
     errors: list[str] = []
@@ -73,7 +82,7 @@ def _resolve_energy_labels(energies: list[float] | None) -> tuple[list[tuple[str
             continue
 
         match = next(
-            ((label, known) for label, known in ENERGY_DICT.items() if abs(known - value) < 1e-9),
+            ((label, known) for label, known in energy_dict.items() if abs(known - value) < 1e-9),
             None,
         )
         if match is None:
@@ -173,6 +182,78 @@ def _normalize_rp(key: str, rp: dict) -> dict:
     return {"z": z, "short": str(rp.get("short", rp.get("name", key)))}
 
 
+def _normalize_profile_single_energy(profile_single: dict) -> dict[str, float]:
+    """Merge profile single_energy onto built-in ENERGY_DICT.
+
+    A profile entry for a nuclide *replaces* all built-in entries for that
+    nuclide.  New nuclides are added.  Raises ``ValueError`` on non-numeric
+    energies.
+    """
+    merged = dict(ENERGY_DICT)
+    for name, energies in profile_single.items():
+        try:
+            energies_list = list(energies)
+        except TypeError:
+            raise ValueError(f"Nuclide '{name}' energies must be a list, got {type(energies).__name__}")
+        # Remove old entries sharing the same nuclide-name prefix
+        prefix = f"{name} ("
+        for old_key in [k for k in merged if k.startswith(prefix)]:
+            del merged[old_key]
+        for e in energies_list:
+            try:
+                e_float = float(e)
+            except (TypeError, ValueError):
+                raise ValueError(f"Nuclide '{name}' has non-numeric energy: {e!r}")
+            kev = round(e_float * 1000)
+            label = f"{name} ({kev} keV)"
+            merged[label] = e_float
+    return merged
+
+
+def _normalize_profile_composite_sources(profile_composite: dict) -> tuple[dict, dict]:
+    """Merge profile composite_sources onto built-in COMPOSITE_SOURCES and COMPOSITE_ALIASES.
+
+    Raises ``ValueError`` when a required field is missing.
+    """
+    merged_sources = dict(COMPOSITE_SOURCES)
+    merged_aliases = dict(COMPOSITE_ALIASES)
+
+    for key, src in profile_composite.items():
+        if not isinstance(src, dict):
+            raise ValueError(f"Composite source '{key}' must be a mapping, got {type(src).__name__}")
+        if "meta_id" not in src:
+            raise ValueError(f"Composite source '{key}' is missing required field 'meta_id'")
+        if "cards" not in src:
+            raise ValueError(f"Composite source '{key}' is missing required field 'cards'")
+        merged_sources[key] = {
+            "meta_id": str(src["meta_id"]),
+            "cards": str(src["cards"]),
+            "skip_energy_prefix": str(src.get("skip_energy_prefix", "")),
+        }
+        merged_aliases[key] = key
+        for alias in src.get("aliases", []):
+            merged_aliases[str(alias).strip().lower().replace(" ", "")] = key
+    return merged_sources, merged_aliases
+
+
+def _resolve_nuclide_libraries(
+    nuclides: dict | None,
+) -> tuple[dict[str, float], dict, dict]:
+    """Return ``(energy_dict, composite_sources, composite_aliases)``.
+
+    When *nuclides* is ``None`` the built-in constants are returned as-is.
+    """
+    if nuclides is None:
+        return ENERGY_DICT, COMPOSITE_SOURCES, COMPOSITE_ALIASES
+
+    single = nuclides.get("single_energy", {})
+    composite = nuclides.get("composite_sources", {})
+
+    energy_dict = _normalize_profile_single_energy(single) if single else dict(ENERGY_DICT)
+    sources_dict, aliases_dict = _normalize_profile_composite_sources(composite) if composite else (dict(COMPOSITE_SOURCES), dict(COMPOSITE_ALIASES))
+    return energy_dict, sources_dict, aliases_dict
+
+
 def resolve_reference_point(
     reference_point: str,
     reference_points: dict | None = None,
@@ -211,6 +292,7 @@ def generate_mcnp_inputs(
     geb_params: dict | None = None,
     dry_run: bool = False,
     reference_points: dict | None = None,
+    nuclides: dict | None = None,
 ) -> dict[str, Any]:
     """Generate MCNP input files from a base model.
 
@@ -230,6 +312,12 @@ def generate_mcnp_inputs(
 
     if not raw_nps:
         result["errors"].append("nps must not be empty")
+        return result
+
+    try:
+        energy_dict, comp_sources, comp_aliases = _resolve_nuclide_libraries(nuclides)
+    except ValueError as exc:
+        result["errors"].append(str(exc))
         return result
 
     try:
@@ -260,8 +348,10 @@ def generate_mcnp_inputs(
         result["errors"].append(f"Failed to read base_file: {exc}")
         return result
 
-    energy_items, energy_errors = _resolve_energy_labels(energies)
-    composite_keys, composite_errors = _normalize_composite_sources(composite_sources)
+    energy_items, energy_errors = _resolve_energy_labels(energies, energy_dict=energy_dict)
+    composite_keys, composite_errors = _normalize_composite_sources(
+        composite_sources, aliases=comp_aliases
+    )
     result["errors"].extend(energy_errors)
     result["errors"].extend(composite_errors)
 
@@ -304,7 +394,7 @@ def generate_mcnp_inputs(
             candidates.append((label, new_content))
 
     for key in composite_keys:
-        composite = COMPOSITE_SOURCES[key]
+        composite = comp_sources[key]
         source_block = base_injection.format(erg="d2", spectrum_cards=composite["cards"])
         new_content, inserted = _inject_source(content, source_block)
         if inserted > 0:

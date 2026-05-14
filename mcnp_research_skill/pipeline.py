@@ -95,6 +95,7 @@ def run_core_pipeline(
     dry_run: bool = True,
     confirm_mpi: bool = False,
     reference_points: dict | None = None,
+    nuclides: dict | None = None,
 ) -> dict[str, Any]:
     """Run the core pipeline: inputs -> MPI -> CSV extraction -> plotting."""
     result: dict[str, Any] = {
@@ -119,6 +120,7 @@ def run_core_pipeline(
             geb_params=config.get("geb_params"),
             dry_run=dry_run,
             reference_points=reference_points,
+            nuclides=nuclides,
         )
     except Exception as exc:  # noqa: BLE001 - exposed as structured pipeline error.
         generate_result = {"ok": False, "warnings": [], "errors": [str(exc)]}
