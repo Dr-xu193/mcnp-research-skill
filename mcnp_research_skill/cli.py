@@ -11,6 +11,7 @@ from typing import Any
 from .batch import run_batch_pipeline
 from .config.profile import write_default_profiles
 from .diagnostics import run_doctor
+from .mcnp_input.inspection import inspect_deck_file
 from .mcnp_input.generator import generate_mcnp_inputs
 from .mcnp_output.tally_extractor import extract_tally_csvs
 from .mcnp_run.mpi_runner import run_mpi_batch
@@ -124,6 +125,9 @@ def run_command(args: argparse.Namespace) -> dict[str, Any]:
             force=bool(args.force),
             active_profile=str(args.profile_name),
         )
+
+    if args.command == "inspect-deck":
+        return inspect_deck_file(args.input)
 
     if args.command == "fit-geb-from-spe":
         kwargs_spe: dict[str, Any] = {"spe_files": args.spe_files}
@@ -280,6 +284,9 @@ def build_parser() -> argparse.ArgumentParser:
         subparser.add_argument("--execute", action="store_false", dest="dry_run")
         if command in {"run-mpi"}:
             subparser.add_argument("--confirm-mpi", action="store_true", default=False)
+
+    inspect_parser = subparsers.add_parser("inspect-deck")
+    inspect_parser.add_argument("--input", required=True, dest="input")
 
     spe_parser = subparsers.add_parser("fit-geb-from-spe")
     spe_parser.add_argument("--spe", action="append", required=True, dest="spe_files")
