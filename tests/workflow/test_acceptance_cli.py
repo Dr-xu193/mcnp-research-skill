@@ -179,3 +179,78 @@ def test_postprocess_missing_output(tmp_path):
            "--mode","csv","--mcnp-output",str(tmp_path/"nope.txt"))
     assert r.returncode!=0; p=json.loads(r.stdout); assert p["ok"]==False
     assert any(e.get("code")=="MISSING_MCNP_OUTPUT" for e in p.get("errors",[]) if isinstance(e,dict))
+
+
+# ---- source strategy v1 regression ----
+
+SDEF_DECK = "title\nmode p e\nsdef pos=0 0 -0.005 rad=d1 ext=0 par=2 tr=1 erg=0.662\nsi1 0 0.15\nsp1 -21 1\nTR1 0 0 -16.1900\nf8:p,e 1\nnps 100000\n"
+
+
+def test_preserve_keeps_sdef_si_sp_tr(tmp_path):
+    inp=tmp_path/"A.txt"; inp.write_text(SDEF_DECK,encoding="utf-8"); out=tmp_path/"out.txt"
+    r=_run("patch-deck","--input",str(inp),"--output",str(out),"--nps","1e7","--source-strategy","preserve_existing_source")
+    assert r.returncode==0; p=json.loads(r.stdout); assert p["ok"]
+    text=out.read_text(encoding="utf-8")
+    assert "nps 10000000" in text
+    assert "sdef pos=0 0 -0.005 rad=d1 ext=0 par=2 tr=1 erg=0.662" in text
+    assert "si1 0 0.15" in text; assert "sp1 -21 1" in text; assert "TR1 0 0 -16.1900" in text
+
+
+def test_point_sdef_pos_does_not_delete_si_sp_tr(tmp_path):
+    inp=tmp_path/"A.txt"; inp.write_text(SDEF_DECK,encoding="utf-8"); out=tmp_path/"out.txt"
+    r=_run("patch-deck","--input",str(inp),"--output",str(out),"--source-strategy","point_sdef_pos",
+           "--source-position","0","0","10","--source-energy","0.662")
+    assert r.returncode==0; p=json.loads(r.stdout); assert p["ok"]
+    text=out.read_text(encoding="utf-8")
+    assert "sdef pos=0 0 10 par=2 erg=0.662" in text
+    assert "si1 0 0.15" in text; assert "sp1 -21 1" in text; assert "TR1 0 0 -16.1900" in text
+
+
+def test_disk_tr1_does_not_delete_si_sp_tr(tmp_path):
+    inp=tmp_path/"A.txt"; inp.write_text(SDEF_DECK,encoding="utf-8"); out=tmp_path/"out.txt"
+    r=_run("patch-deck","--input",str(inp),"--output",str(out),"--source-strategy","disk_tr1",
+           "--source-position","0","0","10","--source-radius","0.15","--source-energy","0.662")
+    assert r.returncode==0; p=json.loads(r.stdout); assert p["ok"]
+    text=out.read_text(encoding="utf-8")
+    assert "sdef pos=0 0 0 rad=" in text
+    assert "si1 0 0.15" in text; assert "sp1 -21 1" in text; assert "TR1 0 0 -16.1900" in text
+
+
+def test_run_only_with_no_tally_not_blocked(tmp_path):
+    (tmp_path/"A.txt").write_text("title\nnps 100\n",encoding="utf-8")
+    r=_run("batch-workflow","--input-dir",str(tmp_path),"--work-dir",str(tmp_path/"w"),
+           "--workflow-mode","run-only","--postprocess","none")
+    assert r.returncode==0; p=json.loads(r.stdout); assert p["ok"]
+
+
+def test_f4_csv_blocked_structured(tmp_path):
+    (tmp_path/"A.txt").write_text("title\nf4:n 1\nnps 100\n",encoding="utf-8")
+    r=_run("plan-workflow","--input",str(tmp_path/"A.txt"),"--workflow-mode","run-only","--postprocess","csv")
+    assert r.returncode!=0; p=json.loads(r.stdout); assert p["ok"]==False
+    assert any(b.get("code")=="CSV_REQUIRES_F8" for b in p.get("blocked",[]))
+
+
+def test_f8_csv_dry_planned_not_executed(tmp_path):
+    (tmp_path/"A.txt").write_text(F8,encoding="utf-8")
+    r=_run("run-workflow","--input",str(tmp_path/"A.txt"),"--work-dir",str(tmp_path/"w"),
+           "--workflow-mode","run-only","--postprocess","csv","--dry-run")
+    assert r.returncode==0; p=json.loads(r.stdout)
+    assert p["postprocess_status"]=="planned_not_executed"
+
+
+def test_source_card_id_tr_si_sp_any_conflict(tmp_path):
+    inp=tmp_path/"A.txt"; inp.write_text("tr7 1 2 3\nnps 100\n",encoding="utf-8"); out=tmp_path/"out.txt"
+    r=_run("patch-deck","--input",str(inp),"--output",str(out),"--source-strategy","disk_tr1",
+           "--source-position","0","0","10","--source-radius","0.15","--source-energy","0.662",
+           "--source-card-id","7")
+    assert r.returncode!=0; p=json.loads(r.stdout)
+    assert any(e.get("code")=="SOURCE_CARD_ID_CONFLICT" for e in p.get("errors",[]) if isinstance(e,dict))
+    assert not out.exists()
+
+
+def test_execute_no_confirm_blocked(tmp_path):
+    (tmp_path/"A.txt").write_text(F8,encoding="utf-8")
+    r=_run("run-workflow","--input",str(tmp_path/"A.txt"),"--work-dir",str(tmp_path/"w"),
+           "--workflow-mode","run-only","--execute")
+    assert r.returncode!=0; p=json.loads(r.stdout); assert p["ok"]==False
+    assert any("MISSING_CONFIRM_MPI" in str(e) for e in p.get("errors",[]))
