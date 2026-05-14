@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from .batch import run_batch_pipeline
+from .config.profile import write_default_profiles
 from .diagnostics import run_doctor
 from .mcnp_input.generator import generate_mcnp_inputs
 from .mcnp_output.tally_extractor import extract_tally_csvs
@@ -117,6 +118,13 @@ def _existing_csv_files(output_dir: str) -> list[str]:
 
 def run_command(args: argparse.Namespace) -> dict[str, Any]:
     """Execute a parsed CLI command and return a structured result."""
+    if args.command == "init":
+        return write_default_profiles(
+            path=args.profile_path,
+            force=bool(args.force),
+            active_profile=str(args.profile_name),
+        )
+
     if args.command == "fit-geb-from-spe":
         return fit_geb_from_spe_files(args.spe_files)
 
@@ -200,6 +208,11 @@ def run_command(args: argparse.Namespace) -> dict[str, Any]:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m mcnp_research_skill.cli")
     subparsers = parser.add_subparsers(dest="command", required=True)
+
+    init_parser = subparsers.add_parser("init")
+    init_parser.add_argument("--force", action="store_true", default=False)
+    init_parser.add_argument("--profile", default="default", dest="profile_name")
+    init_parser.add_argument("--path", default=None, dest="profile_path")
 
     doctor_parser = subparsers.add_parser("doctor")
     doctor_parser.add_argument("--config", required=True)
