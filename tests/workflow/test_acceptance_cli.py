@@ -41,6 +41,76 @@ def test_patch_preserve_nps(tmp_path):
     assert "nps 10000000" in out.read_text(encoding="utf-8")
     assert "sdef old source" in out.read_text(encoding="utf-8")
 
+# ---- disk_tr1 acceptance ----
+
+
+def test_patch_disk_tr1_generates_tr_si_sp(tmp_path):
+    inp = tmp_path / "A.txt"; inp.write_text("f8:p,e 1\nnps 100\n", encoding="utf-8")
+    out = tmp_path / "patched.txt"
+    r = _run("patch-deck", "--input", str(inp), "--output", str(out),
+             "--source-strategy", "disk_tr1", "--source-position", "0", "0", "10",
+             "--source-radius", "0.15", "--source-energy", "0.662")
+    assert r.returncode == 0; p = json.loads(r.stdout); assert p["ok"]
+    text = out.read_text(encoding="utf-8")
+    assert "sdef pos=0 0 0 rad=d" in text
+    assert "tr=" in text and "par=2" in text and "erg=0.662" in text
+    assert "si" in text and "sp" in text
+
+
+def test_patch_disk_tr1_auto_card_id_avoids_existing(tmp_path):
+    inp = tmp_path / "A.txt"
+    inp.write_text("f8:p,e 1\nnps 100\nsi1 0 0.15\nsp1 -21 1\nTR1 0 0 -16\n", encoding="utf-8")
+    out = tmp_path / "patched.txt"
+    r = _run("patch-deck", "--input", str(inp), "--output", str(out),
+             "--source-strategy", "disk_tr1", "--source-position", "0", "0", "10",
+             "--source-radius", "0.15", "--source-energy", "0.662")
+    assert r.returncode == 0; p = json.loads(r.stdout); assert p["ok"]
+    text = out.read_text(encoding="utf-8")
+    # New cards should use id >= 2 since 1 is taken
+    assert "tr2" in text or "tr3" in text
+
+
+def test_patch_disk_tr1_card_id_conflict(tmp_path):
+    inp = tmp_path / "A.txt"
+    inp.write_text("tr5 1 2 3\nnps 100\n", encoding="utf-8")
+    out = tmp_path / "out.txt"
+    r = _run("patch-deck", "--input", str(inp), "--output", str(out),
+             "--source-strategy", "disk_tr1", "--source-position", "0", "0", "10",
+             "--source-radius", "0.15", "--source-energy", "0.662", "--source-card-id", "5")
+    assert r.returncode != 0; p = json.loads(r.stdout); assert p["ok"] is False
+    assert any(e.get("code") == "SOURCE_CARD_ID_CONFLICT" for e in p.get("errors", []) if isinstance(e, dict))
+    assert not out.exists()
+
+
+def test_patch_disk_tr1_missing_radius(tmp_path):
+    inp = tmp_path / "A.txt"; inp.write_text("nps 100\n", encoding="utf-8")
+    out = tmp_path / "out.txt"
+    r = _run("patch-deck", "--input", str(inp), "--output", str(out),
+             "--source-strategy", "disk_tr1", "--source-position", "0", "0", "10", "--source-energy", "0.662")
+    assert r.returncode != 0; p = json.loads(r.stdout); assert p["ok"] is False
+    assert any(e.get("code") == "MISSING_SOURCE_RADIUS" for e in p.get("errors", []) if isinstance(e, dict))
+    assert not out.exists()
+
+
+def test_prepare_disk_tr1_dry(tmp_path):
+    inp = tmp_path / "A.txt"; inp.write_text("f8:p,e 1\nnps 100000\n", encoding="utf-8")
+    r = _run("prepare-workflow", "--input", str(inp), "--work-dir", str(tmp_path / "w"),
+             "--workflow-mode", "patch-and-run", "--source-strategy", "disk_tr1",
+             "--source-position", "0", "0", "10", "--source-radius", "0.15", "--source-energy", "0.662")
+    assert r.returncode == 0; p = json.loads(r.stdout); assert p["ok"]
+    assert (tmp_path / "w" / "A.txt").exists()
+    assert (tmp_path / "w" / "manifest.json").exists()
+
+
+def test_run_workflow_disk_tr1_dry(tmp_path):
+    inp = tmp_path / "A.txt"; inp.write_text("f8:p,e 1\nnps 100000\n", encoding="utf-8")
+    r = _run("run-workflow", "--input", str(inp), "--work-dir", str(tmp_path / "w"),
+             "--workflow-mode", "patch-and-run", "--source-strategy", "disk_tr1",
+             "--source-position", "0", "0", "10", "--source-radius", "0.15", "--source-energy", "0.662", "--dry-run")
+    assert r.returncode == 0; p = json.loads(r.stdout); assert p["ok"]
+    assert p["dry_run"] is True; assert p["executed"] is False
+
+
 # ---- prepare-workflow ----
 def test_prepare_patch_nps_dry(tmp_path):
     inp=tmp_path/"A.txt"; inp.write_text("f8:p,e 1\nnps 100000\n",encoding="utf-8")

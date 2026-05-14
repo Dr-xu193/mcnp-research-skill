@@ -177,6 +177,9 @@ def run_command(args: argparse.Namespace) -> dict[str, Any]:
             source_position=getattr(args, "source_position", None),
             source_energy=getattr(args, "source_energy", None),
             source_particle=getattr(args, "source_particle", None),
+            source_radius=getattr(args, "source_radius", None),
+            source_ext=getattr(args, "source_ext", 0),
+            source_card_id=getattr(args, "source_card_id", None),
         )
 
     if args.command == "batch-workflow":
@@ -221,6 +224,9 @@ def run_command(args: argparse.Namespace) -> dict[str, Any]:
             source_position=getattr(args, "source_position", None),
             source_energy=getattr(args, "source_energy", None),
             source_particle=getattr(args, "source_particle", None),
+            source_radius=getattr(args, "source_radius", None),
+            source_ext=getattr(args, "source_ext", 0),
+            source_card_id=getattr(args, "source_card_id", None),
         )
 
     if args.command == "run-point-sweep":
@@ -467,6 +473,9 @@ def build_parser() -> argparse.ArgumentParser:
     prep_parser.add_argument("--source-position", nargs=3, type=float, default=None, dest="source_position")
     prep_parser.add_argument("--source-energy", type=float, default=None, dest="source_energy")
     prep_parser.add_argument("--source-particle", default=None, dest="source_particle")
+    prep_parser.add_argument("--source-radius", type=float, default=None, dest="source_radius")
+    prep_parser.add_argument("--source-ext", type=float, default=0, dest="source_ext")
+    prep_parser.add_argument("--source-card-id", type=int, default=None, dest="source_card_id")
 
     sweep_parser = subparsers.add_parser("prepare-point-sweep")
     sweep_parser.add_argument("--input", required=True, dest="input")
@@ -522,6 +531,9 @@ def build_parser() -> argparse.ArgumentParser:
     runwf_parser.add_argument("--source-position", nargs=3, type=float, default=None, dest="source_position")
     runwf_parser.add_argument("--source-energy", type=float, default=None, dest="source_energy")
     runwf_parser.add_argument("--source-particle", default=None, dest="source_particle")
+    runwf_parser.add_argument("--source-radius", type=float, default=None, dest="source_radius")
+    runwf_parser.add_argument("--source-ext", type=float, default=0, dest="source_ext")
+    runwf_parser.add_argument("--source-card-id", type=int, default=None, dest="source_card_id")
 
     batchwf_parser = subparsers.add_parser("batch-workflow")
     batchwf_parser.add_argument("--input-dir", required=True, dest="input_dir")

@@ -6,7 +6,7 @@
 |---------|---------|------------|
 | `inspect-deck` | Detect cards (NPS, MODE, SDEF, F tallies, GEB) in a single deck | No |
 | `plan-workflow` | Produce a structured plan from inspection + user intent | No |
-| `patch-deck` | Apply NPS / point-sdef_pos patches to a single deck | No |
+| `patch-deck` | Apply NPS / point_sdef_pos / disk_tr1 patches to a single deck | No |
 | `prepare-workflow` | Inspect → plan → patch/copy → write manifest | No |
 | `run-workflow` | Prepare → optionally run MCNP → optionally F8 postprocess | **Yes (if --execute)** |
 | `batch-workflow` | Batch prepare/run for all *.txt decks in a directory | **Yes (if --execute)** |
@@ -110,6 +110,41 @@ python -m mcnp_research_skill.cli run-point-sweep `
 
 ---
 
+### 7. Disk source via TRn transform
+
+```powershell
+python -m mcnp_research_skill.cli patch-deck `
+  --input A.txt `
+  --output A_disk.txt `
+  --source-strategy disk_tr1 `
+  --source-position 0 0 10 `
+  --source-radius 0.15 `
+  --source-energy 0.662 `
+  --source-ext 0 `
+  --nps 1e7
+```
+
+**disk_tr1 parameters:**
+
+| Parameter | Required | Meaning |
+|-----------|----------|---------|
+| `--source-position X Y Z` | Yes | TRn translation position (3 numbers) |
+| `--source-energy ENERGY` | Yes | Source energy in MeV (must be positive) |
+| `--source-radius RADIUS` | Yes | Disk radius (must be positive) |
+| `--source-ext EXT` | No (default 0) | SDEF ext parameter |
+| `--source-card-id N` | No (auto) | Explicit TR/SI/SP card ID; auto-selected to avoid conflicts if omitted |
+| `--source-particle` | No (default photon/2) | Only `p`/`photon`/`2` currently supported |
+
+Generated cards (example with auto card-id=2):
+```
+tr2 0 0 10
+sdef pos=0 0 0 rad=d2 ext=0 par=2 tr=2 erg=0.662
+si2 0 0.15
+sp2 -21 1
+```
+
+---
+
 ## Common Error Codes
 
 | Code | Meaning |
@@ -125,6 +160,14 @@ python -m mcnp_research_skill.cli run-point-sweep `
 | `INVALID_REFERENCE_POSITION` | Reference position is not exactly 3 numbers |
 | `INPUT_FILE_NOT_FOUND` | Input file or directory does not exist |
 | `RUNNER_FAILED` | MPI runner raised an exception |
+| `MISSING_SOURCE_RADIUS` | `disk_tr1` requires `--source-radius` |
+| `INVALID_SOURCE_RADIUS` | source_radius must be a positive number |
+| `INVALID_SOURCE_EXT` | source_ext must be numeric |
+| `INVALID_SOURCE_CARD_ID` | source_card_id must be a positive integer |
+| `SOURCE_CARD_ID_CONFLICT` | source_card_id is already used by existing TR/SI/SP |
+| `MISSING_SOURCE_POSITION` | source_position is required |
+| `INVALID_SOURCE_POSITION` | source_position must be exactly 3 numbers |
+| `UNSUPPORTED_SOURCE_STRATEGY` | source_strategy not in preserve_existing_source / point_sdef_pos / disk_tr1 |
 | `POSTPROCESS_ALL_FAILED` | Postprocess failed for every swept distance |
 | `SWEEP_ALL_FAILED` | Every distance point failed to prepare |
 | `PREPARE_FAILED` | A single prepare step returned an error |
