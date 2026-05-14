@@ -259,3 +259,25 @@ def test_cli_prepare_blocked_does_not_write_input(tmp_path: Path):
     payload = json.loads(completed.stdout)
     assert payload["ok"] is False
     assert not (wd / "A.txt").exists()
+
+
+# ---- point_sdef_pos ----
+
+def test_prepare_point_sdef_pos(tmp_path):
+    inp = _write_input(tmp_path / "A.txt", deck("test", "sdef old source", "nps 100000"))
+    wd = tmp_path / "work"
+    r = prepare_workflow(input_path=inp, work_dir=wd, workflow_mode="patch-and-run",
+                         source_strategy="point_sdef_pos",
+                         source_position=[0, 0, 10], source_energy=0.662)
+    assert r["ok"] is True
+    text = (wd / "A.txt").read_text(encoding="utf-8")
+    assert "sdef pos=0 0 10 par=2 erg=0.662" in text
+
+
+def test_prepare_point_sdef_missing_energy(tmp_path):
+    inp = _write_input(tmp_path / "A.txt", deck("test", "sdef old", "nps 100"))
+    wd = tmp_path / "work"
+    r = prepare_workflow(input_path=inp, work_dir=wd, workflow_mode="patch-and-run",
+                         source_strategy="point_sdef_pos", source_position=[0, 0, 10])
+    assert r["ok"] is False
+    assert not (wd / "A.txt").exists()

@@ -157,7 +157,7 @@ def test_preserve_source_cards_untouched():
 
 def test_unsupported_source_strategy_rejects():
     d = deck("test", "f8:p,e 1", "nps 100")
-    result = patch_deck(d, nps=1000, source_strategy="point_sdef_pos")
+    result = patch_deck(d, nps=1000, source_strategy="disk_tr1")
     assert result["ok"] is False
     assert result["changed"] is False
     assert any(
@@ -218,3 +218,125 @@ def test_cli_patch_deck_multi_nps_does_not_write_output(tmp_path: Path):
     payload = json.loads(completed.stdout)
     assert payload["ok"] is False
     assert not out.exists()
+
+
+# ---------------------------------------------------------------------------
+# point_sdef_pos
+# ---------------------------------------------------------------------------
+
+
+def test_point_sdef_pos_replace_existing_sdef():
+    d = deck("test", "sdef pos=0 0 -0.005 rad=d1 ext=0 par=2 tr=1 erg=0.662", "f8:p,e 1", "nps 100")
+    r = patch_deck(d, source_strategy="point_sdef_pos", source_position=[0, 0, 10], source_energy=0.662)
+    assert r["ok"] is True
+    assert r["changed"] is True
+    assert "sdef pos=0 0 10" in r["text"]
+    assert "rad=" not in r["text"] or "rad=" in r["text"]  # old SI/SP/TR may remain
+    assert "par=2" in r["text"]
+    assert "erg=0.662" in r["text"]
+
+
+def test_point_sdef_pos_insert_when_no_sdef():
+    d = deck("test", "f8:p,e 1", "nps 100")
+    r = patch_deck(d, source_strategy="point_sdef_pos", source_position=[0, 0, 5], source_energy=0.662)
+    assert r["ok"] is True
+    assert "sdef pos=0 0 5 par=2 erg=0.662" in r["text"]
+
+
+def test_point_sdef_pos_multiple_sdef_reject():
+    d = deck("test", "sdef pos=1 2 3", "sdef pos=4 5 6", "nps 100")
+    r = patch_deck(d, source_strategy="point_sdef_pos", source_position=[0, 0, 10], source_energy=0.662)
+    assert r["ok"] is False
+    assert any(e.get("code") == "MULTIPLE_SDEF" for e in r["errors"] if isinstance(e, dict))
+
+
+def test_point_sdef_pos_missing_position():
+    d = deck("test", "nps 100")
+    r = patch_deck(d, source_strategy="point_sdef_pos", source_energy=0.662)
+    assert r["ok"] is False
+    assert any(e.get("code") == "MISSING_SOURCE_POSITION" for e in r["errors"] if isinstance(e, dict))
+
+
+def test_point_sdef_pos_missing_energy():
+    d = deck("test", "nps 100")
+    r = patch_deck(d, source_strategy="point_sdef_pos", source_position=[0, 0, 10])
+    assert r["ok"] is False
+    assert any(e.get("code") == "MISSING_SOURCE_ENERGY" for e in r["errors"] if isinstance(e, dict))
+
+
+def test_point_sdef_pos_invalid_position():
+    d = deck("test", "nps 100")
+    r = patch_deck(d, source_strategy="point_sdef_pos", source_position=[0, 0], source_energy=0.662)
+    assert r["ok"] is False
+    assert any(e.get("code") == "INVALID_SOURCE_POSITION" for e in r["errors"] if isinstance(e, dict))
+
+
+def test_point_sdef_pos_invalid_energy():
+    d = deck("test", "nps 100")
+    r = patch_deck(d, source_strategy="point_sdef_pos", source_position=[0, 0, 10], source_energy=-1)
+    assert r["ok"] is False
+    assert any(e.get("code") == "INVALID_SOURCE_ENERGY" for e in r["errors"] if isinstance(e, dict))
+
+
+def test_point_sdef_pos_invalid_particle():
+    d = deck("test", "nps 100")
+    r = patch_deck(d, source_strategy="point_sdef_pos", source_position=[0, 0, 10], source_energy=0.662, source_particle="neutron")
+    assert r["ok"] is False
+    assert any(e.get("code") == "INVALID_SOURCE_PARTICLE" for e in r["errors"] if isinstance(e, dict))
+
+
+def test_point_sdef_pos_preserves_si_sp_tr():
+    d = deck("test", "sdef pos=0 0 -0.005 rad=d1 ext=0 par=2 tr=1 erg=0.662", "si1 0 0.15", "sp1 -21 1", "TR1 0 0 -16.1900", "f8:p,e 1", "nps 100")
+    r = patch_deck(d, source_strategy="point_sdef_pos", source_position=[0, 0, 10], source_energy=0.662)
+    assert r["ok"] is True
+    assert "si1 0 0.15" in r["text"]
+    assert "sp1 -21 1" in r["text"]
+    assert "TR1 0 0 -16.1900" in r["text"]
+    assert any("POSSIBLE_UNUSED_SOURCE_CARDS" in w for w in r.get("warnings", []))
+
+
+def test_point_sdef_pos_with_nps():
+    d = deck("test", "sdef old", "nps 100000")
+    r = patch_deck(d, source_strategy="point_sdef_pos", source_position=[0, 0, 10], source_energy=0.662, nps="1e7")
+    assert r["ok"] is True
+    assert "sdef pos=0 0 10 par=2 erg=0.662" in r["text"]
+    assert "nps 10000000" in r["text"]
+    assert any(p["kind"] == "sdef" for p in r["patches"])
+    assert any(p["kind"] == "nps" for p in r["patches"])
+
+
+def test_preserve_existing_source_still_works():
+    d = deck("test", "sdef old source", "nps 100")
+    r = patch_deck(d, nps=1000, source_strategy="preserve_existing_source")
+    assert r["ok"] is True
+    assert "sdef old source" in r["text"]
+
+
+# CLI tests
+def test_cli_patch_point_sdef_pos(tmp_path: Path):
+    inp = tmp_path / "A.txt"
+    inp.write_text(deck("test", "sdef old", "nps 100"), encoding="utf-8")
+    out = tmp_path / "patched.txt"
+    r = subprocess.run([sys.executable, "-m", "mcnp_research_skill.cli", "patch-deck",
+        "--input", str(inp), "--output", str(out),
+        "--source-strategy", "point_sdef_pos",
+        "--source-position", "0", "0", "10", "--source-energy", "0.662"],
+        cwd=Path.cwd(), text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    assert r.returncode == 0
+    p = json.loads(r.stdout); assert p["ok"]
+    assert out.exists()
+    assert "sdef pos=0 0 10 par=2 erg=0.662" in out.read_text(encoding="utf-8")
+
+
+def test_cli_patch_point_sdef_missing_energy(tmp_path: Path):
+    inp = tmp_path / "A.txt"
+    inp.write_text(deck("test", "sdef old", "nps 100"), encoding="utf-8")
+    out = tmp_path / "out.txt"
+    r = subprocess.run([sys.executable, "-m", "mcnp_research_skill.cli", "patch-deck",
+        "--input", str(inp), "--output", str(out),
+        "--source-strategy", "point_sdef_pos", "--source-position", "0", "0", "10"],
+        cwd=Path.cwd(), text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    assert r.returncode != 0
+    p = json.loads(r.stdout); assert p["ok"] is False
+    assert not out.exists()
+    assert any("MISSING_SOURCE_ENERGY" in str(e) for e in p.get("errors", []))

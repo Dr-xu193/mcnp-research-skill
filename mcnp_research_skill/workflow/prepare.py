@@ -30,6 +30,9 @@ def prepare_workflow(
     source_strategy: str | None = None,
     postprocess: str = "none",
     nps: str | int | float | None = None,
+    source_position: tuple[float, float, float] | list[float] | None = None,
+    source_energy: float | str | None = None,
+    source_particle: str | int | None = None,
 ) -> dict[str, Any]:
     """Inspect → plan → patch/copy → artifact write.  No MCNP execution."""
 
@@ -121,8 +124,10 @@ def prepare_workflow(
     # ---- patch or copy ----
     effective_strategy = source_strategy or "preserve_existing_source"
 
-    if nps is not None:
-        patch_result = patch_deck(text, nps=nps, source_strategy=effective_strategy)
+    if nps is not None or effective_strategy != "preserve_existing_source":
+        patch_result = patch_deck(text, nps=nps, source_strategy=effective_strategy,
+                                  source_position=source_position, source_energy=source_energy,
+                                  source_particle=source_particle)
         if not patch_result.get("ok"):
             result["errors"].extend(
                 e.get("message", str(e)) if isinstance(e, dict) else str(e)

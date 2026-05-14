@@ -148,10 +148,16 @@ def run_command(args: argparse.Namespace) -> dict[str, Any]:
         )
 
     if args.command == "patch-deck":
+        sp = getattr(args, "source_position", None)
+        if sp is not None:
+            sp = [float(v) for v in sp]
         result = patch_deck_file(
             args.input, args.output,
             nps=getattr(args, "nps", None),
             source_strategy=getattr(args, "source_strategy", "preserve_existing_source"),
+            source_position=sp,
+            source_energy=getattr(args, "source_energy", None),
+            source_particle=getattr(args, "source_particle", None),
         )
         result.pop("text", None)
         return result
@@ -164,6 +170,9 @@ def run_command(args: argparse.Namespace) -> dict[str, Any]:
             source_strategy=getattr(args, "source_strategy", None),
             postprocess=getattr(args, "postprocess", "none"),
             nps=getattr(args, "nps", None),
+            source_position=getattr(args, "source_position", None),
+            source_energy=getattr(args, "source_energy", None),
+            source_particle=getattr(args, "source_particle", None),
         )
 
     if args.command == "batch-workflow":
@@ -205,6 +214,9 @@ def run_command(args: argparse.Namespace) -> dict[str, Any]:
             mcnp_output_path=getattr(args, "mcnp_output", None),
             csv_output_path=getattr(args, "csv_output", None),
             plot_output_path=getattr(args, "plot_output", None),
+            source_position=getattr(args, "source_position", None),
+            source_energy=getattr(args, "source_energy", None),
+            source_particle=getattr(args, "source_particle", None),
         )
 
     if args.command == "postprocess-workflow":
@@ -394,6 +406,9 @@ def build_parser() -> argparse.ArgumentParser:
     patch_parser.add_argument("--output", required=True, dest="output")
     patch_parser.add_argument("--nps", default=None, dest="nps")
     patch_parser.add_argument("--source-strategy", default="preserve_existing_source", dest="source_strategy")
+    patch_parser.add_argument("--source-position", nargs=3, type=float, default=None, dest="source_position")
+    patch_parser.add_argument("--source-energy", type=float, default=None, dest="source_energy")
+    patch_parser.add_argument("--source-particle", default=None, dest="source_particle")
 
     prep_parser = subparsers.add_parser("prepare-workflow")
     prep_parser.add_argument("--input", required=True, dest="input")
@@ -402,6 +417,9 @@ def build_parser() -> argparse.ArgumentParser:
     prep_parser.add_argument("--source-strategy", default=None, dest="source_strategy")
     prep_parser.add_argument("--postprocess", default="none", dest="postprocess")
     prep_parser.add_argument("--nps", default=None, dest="nps")
+    prep_parser.add_argument("--source-position", nargs=3, type=float, default=None, dest="source_position")
+    prep_parser.add_argument("--source-energy", type=float, default=None, dest="source_energy")
+    prep_parser.add_argument("--source-particle", default=None, dest="source_particle")
 
     runwf_parser = subparsers.add_parser("run-workflow")
     runwf_parser.add_argument("--input", required=True, dest="input")
@@ -417,6 +435,9 @@ def build_parser() -> argparse.ArgumentParser:
     runwf_parser.add_argument("--mcnp-output", default=None, dest="mcnp_output")
     runwf_parser.add_argument("--csv-output", default=None, dest="csv_output")
     runwf_parser.add_argument("--plot-output", default=None, dest="plot_output")
+    runwf_parser.add_argument("--source-position", nargs=3, type=float, default=None, dest="source_position")
+    runwf_parser.add_argument("--source-energy", type=float, default=None, dest="source_energy")
+    runwf_parser.add_argument("--source-particle", default=None, dest="source_particle")
 
     batchwf_parser = subparsers.add_parser("batch-workflow")
     batchwf_parser.add_argument("--input-dir", required=True, dest="input_dir")

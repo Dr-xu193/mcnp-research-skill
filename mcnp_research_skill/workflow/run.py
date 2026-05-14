@@ -28,6 +28,9 @@ def run_workflow(
     mcnp_output_path: str | Path | None = None,
     csv_output_path: str | Path | None = None,
     plot_output_path: str | Path | None = None,
+    source_position: tuple[float, float, float] | list[float] | None = None,
+    source_energy: float | str | None = None,
+    source_particle: str | int | None = None,
 ) -> dict[str, Any]:
     """Inspect → plan → patch/copy → (optionally) run MCNP → postprocess."""
 
@@ -53,6 +56,9 @@ def run_workflow(
         source_strategy=source_strategy,
         postprocess=postprocess,
         nps=nps,
+        source_position=source_position,
+        source_energy=source_energy,
+        source_particle=source_particle,
     )
     result["prepare"] = {
         "ok": prep.get("ok"),

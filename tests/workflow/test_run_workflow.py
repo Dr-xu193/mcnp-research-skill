@@ -423,3 +423,15 @@ def test_cli_run_workflow_dry_run_postprocess_planned(tmp_path):
     assert r.returncode == 0
     p = json.loads(r.stdout)
     assert p["postprocess_status"] == "planned_not_executed"
+
+
+def test_run_workflow_point_sdef_pos_dry_run(tmp_path):
+    inp = _write_input(tmp_path / "A.txt", deck("test", "sdef old source", "nps 100000"))
+    wd = tmp_path / "work"
+    r = run_workflow(input_path=inp, work_dir=wd, workflow_mode="patch-and-run",
+                     source_strategy="point_sdef_pos",
+                     source_position=[0, 0, 10], source_energy=0.662, execute=False)
+    assert r["ok"] is True
+    assert r["executed"] is False
+    text = (wd / "A.txt").read_text(encoding="utf-8")
+    assert "sdef pos=0 0 10 par=2 erg=0.662" in text
