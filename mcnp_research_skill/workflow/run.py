@@ -162,6 +162,8 @@ def run_workflow(
         completed = runner_result.get("completed", [])
         if completed:
             resolved_output = completed[0].get("output_path")
+    if resolved_output is None:
+        resolved_output = str(Path(work_dir) / "__nonexistent__.txt")
 
     pp = postprocess_workflow(
         input_path=prepared_path,

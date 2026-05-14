@@ -356,6 +356,8 @@ def run_point_sweep(
             mcnp_out = mcnp_outputs[i]
         elif i < len(completed_runner):
             mcnp_out = completed_runner[i].get("output_path")
+        if mcnp_out is None:
+            mcnp_out = str(staging / "__nonexistent__.txt")
         stem_item = os.path.splitext(name)[0]
         pp = postprocess_workflow(
             input_path=Path(item["prepared_input_path"]),
