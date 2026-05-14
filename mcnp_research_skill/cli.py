@@ -14,6 +14,7 @@ from .diagnostics import run_doctor
 from .mcnp_input.inspection import inspect_deck_file
 from .mcnp_input.patching import patch_deck_file
 from .workflow.planner import plan_workflow
+from .workflow.batch import batch_workflow
 from .workflow.prepare import prepare_workflow
 from .workflow.run import run_workflow
 from .mcnp_input.generator import generate_mcnp_inputs
@@ -162,6 +163,20 @@ def run_command(args: argparse.Namespace) -> dict[str, Any]:
             source_strategy=getattr(args, "source_strategy", None),
             postprocess=getattr(args, "postprocess", "none"),
             nps=getattr(args, "nps", None),
+        )
+
+    if args.command == "batch-workflow":
+        return batch_workflow(
+            input_dir=args.input_dir,
+            work_dir=args.work_dir,
+            workflow_mode=args.workflow_mode,
+            source_strategy=getattr(args, "source_strategy", None),
+            postprocess=getattr(args, "postprocess", "none"),
+            nps=getattr(args, "nps", None),
+            input_files=getattr(args, "input_files", None),
+            mpi_config_path=getattr(args, "mpi_config", None),
+            execute=not bool(getattr(args, "dry_run", True)),
+            confirm_mpi=bool(getattr(args, "confirm_mpi", False)),
         )
 
     if args.command == "run-workflow":
@@ -382,6 +397,19 @@ def build_parser() -> argparse.ArgumentParser:
     runwf_parser.add_argument("--dry-run", action="store_true", dest="dry_run", default=True)
     runwf_parser.add_argument("--execute", action="store_false", dest="dry_run")
     runwf_parser.add_argument("--confirm-mpi", action="store_true", default=False)
+
+    batchwf_parser = subparsers.add_parser("batch-workflow")
+    batchwf_parser.add_argument("--input-dir", required=True, dest="input_dir")
+    batchwf_parser.add_argument("--work-dir", required=True, dest="work_dir")
+    batchwf_parser.add_argument("--workflow-mode", required=True, dest="workflow_mode")
+    batchwf_parser.add_argument("--source-strategy", default=None, dest="source_strategy")
+    batchwf_parser.add_argument("--postprocess", default="none", dest="postprocess")
+    batchwf_parser.add_argument("--nps", default=None, dest="nps")
+    batchwf_parser.add_argument("--input-files", nargs="*", default=None, dest="input_files")
+    batchwf_parser.add_argument("--mpi-config", default=None, dest="mpi_config")
+    batchwf_parser.add_argument("--dry-run", action="store_true", dest="dry_run", default=True)
+    batchwf_parser.add_argument("--execute", action="store_false", dest="dry_run")
+    batchwf_parser.add_argument("--confirm-mpi", action="store_true", default=False)
 
     spe_parser = subparsers.add_parser("fit-geb-from-spe")
     spe_parser.add_argument("--spe", action="append", required=True, dest="spe_files")
