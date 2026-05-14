@@ -149,6 +149,51 @@ def _inject_source(content: str, source_block: str) -> tuple[str, int]:
     )
 
 
+def _lookup_in_rps(reference_point: str, reference_points: dict) -> dict | None:
+    """Try to find *reference_point* by key, short label, or name field."""
+    if reference_point in reference_points:
+        return reference_points[reference_point]
+    for _key, rp in reference_points.items():
+        if rp.get("short") == reference_point or rp.get("name") == reference_point:
+            return rp
+    return None
+
+
+def _normalize_rp(key: str, rp: dict) -> dict:
+    if "z" not in rp:
+        raise ValueError(f"Reference point '{key}' is missing required field 'z'")
+    try:
+        z = float(rp["z"])
+    except (TypeError, ValueError):
+        raise ValueError(f"Reference point '{key}' has non-numeric 'z': {rp['z']!r}")
+    return {"z": z, "short": str(rp.get("short", rp.get("name", key)))}
+
+
+def resolve_reference_point(
+    reference_point: str,
+    reference_points: dict | None = None,
+) -> dict:
+    """Resolve a reference-point name to ``{z, short}``.
+
+    Searches *reference_points* (usually from a profile) first, then falls
+    back to the built-in ``REFERENCE_POINTS``.  Raises ``ValueError`` with
+    the available keys when the name cannot be resolved.
+    """
+    if reference_points is not None:
+        found = _lookup_in_rps(reference_point, reference_points)
+        if found is not None:
+            return _normalize_rp(reference_point, found)
+
+    found = _lookup_in_rps(reference_point, REFERENCE_POINTS)
+    if found is not None:
+        return _normalize_rp(reference_point, found)
+
+    available = sorted(set(REFERENCE_POINTS.keys()) | set(reference_points.keys() if reference_points else ()))
+    raise ValueError(
+        f"Unknown reference_point '{reference_point}'. Available: {available}"
+    )
+
+
 def generate_mcnp_inputs(
     base_file: str,
     output_dir: str,
@@ -161,6 +206,7 @@ def generate_mcnp_inputs(
     geb_enabled: bool = False,
     geb_params: dict | None = None,
     dry_run: bool = False,
+    reference_points: dict | None = None,
 ) -> dict[str, Any]:
     """Generate MCNP input files from a base model.
 
@@ -189,9 +235,10 @@ def generate_mcnp_inputs(
         return result
     result["metadata"]["distance_cm"] = distance
 
-    ref = REFERENCE_POINTS.get(reference_point)
-    if ref is None:
-        result["errors"].append(f"Invalid reference_point: {reference_point}")
+    try:
+        ref = resolve_reference_point(reference_point, reference_points)
+    except ValueError as exc:
+        result["errors"].append(str(exc))
         return result
 
     z_str = f"{(float(ref['z']) - distance):.4f}"

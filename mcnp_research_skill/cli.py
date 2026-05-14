@@ -170,7 +170,15 @@ def run_command(args: argparse.Namespace) -> dict[str, Any]:
         return run_doctor(config)
 
     if args.command == "generate-inputs":
-        return generate_mcnp_inputs(**_input_kwargs(config, dry_run))
+        kwargs = _input_kwargs(config, dry_run)
+        profile_path = getattr(args, "profile_path", None)
+        profile_name = getattr(args, "profile_name", None)
+        if profile_path or profile_name:
+            from .config.profile import load_active_profile
+
+            active = load_active_profile(path=profile_path, profile_name=profile_name)
+            kwargs["reference_points"] = active.get("detector", {}).get("reference_points", {})
+        return generate_mcnp_inputs(**kwargs)
 
     if args.command == "run-mpi":
         return run_mpi_batch(
@@ -218,7 +226,14 @@ def build_parser() -> argparse.ArgumentParser:
     doctor_parser.add_argument("--config", required=True)
     doctor_parser.set_defaults(dry_run=True)
 
-    for command in ["generate-inputs", "run-mpi", "extract-csv", "plot-spectra", "run-core-pipeline"]:
+    gen_parser = subparsers.add_parser("generate-inputs")
+    gen_parser.add_argument("--config", required=True)
+    gen_parser.add_argument("--dry-run", action="store_true", dest="dry_run", default=True)
+    gen_parser.add_argument("--execute", action="store_false", dest="dry_run")
+    gen_parser.add_argument("--profile-path", default=None)
+    gen_parser.add_argument("--profile-name", default=None)
+
+    for command in ["run-mpi", "extract-csv", "plot-spectra", "run-core-pipeline"]:
         subparser = subparsers.add_parser(command)
         subparser.add_argument("--config", required=True)
         subparser.add_argument("--dry-run", action="store_true", dest="dry_run", default=True)

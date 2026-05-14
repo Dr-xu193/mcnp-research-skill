@@ -237,3 +237,144 @@ def test_generate_mcnp_inputs_creates_missing_output_dir_when_writing(tmp_path: 
     assert result["ok"] is True
     assert output_dir.exists()
     assert (output_dir / "1.txt").exists()
+
+
+# ---------------------------------------------------------------------------
+# resolve_reference_point
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_reference_point_builtin_default():
+    from mcnp_research_skill.mcnp_input.generator import resolve_reference_point
+
+    rp = resolve_reference_point("crystal_center")
+    assert rp["z"] == 3.81
+    assert rp["short"] == "几何中心"
+
+
+def test_resolve_reference_point_unknown_raises_valueerror():
+    import pytest
+    from mcnp_research_skill.mcnp_input.generator import resolve_reference_point
+
+    with pytest.raises(ValueError, match="missing_point"):
+        resolve_reference_point("missing_point")
+    with pytest.raises(ValueError, match="crystal_center"):
+        resolve_reference_point("missing_point")
+
+
+def test_resolve_reference_point_profile_key_match():
+    from mcnp_research_skill.mcnp_input.generator import resolve_reference_point
+
+    custom_rps = {
+        "custom_center": {"name": "Custom Center", "z": 12.34, "short_label": "CC"},
+    }
+    rp = resolve_reference_point("custom_center", custom_rps)
+    assert rp["z"] == 12.34
+    assert rp["short"] == "Custom Center"
+
+
+def test_resolve_reference_point_profile_name_match():
+    from mcnp_research_skill.mcnp_input.generator import resolve_reference_point
+
+    custom_rps = {
+        "custom_center": {"name": "Custom Center", "z": 12.34, "short_label": "CC"},
+    }
+    rp = resolve_reference_point("Custom Center", custom_rps)
+    assert rp["z"] == 12.34
+
+
+def test_resolve_reference_point_falls_back_to_builtin():
+    from mcnp_research_skill.mcnp_input.generator import resolve_reference_point
+
+    custom_rps = {"custom_center": {"name": "Custom Center", "z": 12.34}}
+    # "crystal_center" is not in custom_rps, but is in built-in
+    rp = resolve_reference_point("crystal_center", custom_rps)
+    assert rp["z"] == 3.81
+
+
+def test_resolve_reference_point_missing_z_raises_valueerror():
+    import pytest
+    from mcnp_research_skill.mcnp_input.generator import resolve_reference_point
+
+    bad_rps = {"bad": {"name": "Bad Point"}}
+    with pytest.raises(ValueError, match="bad"):
+        resolve_reference_point("bad", bad_rps)
+
+
+def test_resolve_reference_point_non_numeric_z_raises_valueerror():
+    import pytest
+    from mcnp_research_skill.mcnp_input.generator import resolve_reference_point
+
+    bad_rps = {"bad": {"name": "Bad", "z": "not_a_number"}}
+    with pytest.raises(ValueError, match="bad"):
+        resolve_reference_point("bad", bad_rps)
+
+
+# ---------------------------------------------------------------------------
+# generate_mcnp_inputs with profile reference_points
+# ---------------------------------------------------------------------------
+
+
+def test_generator_uses_profile_z_for_tr1(tmp_path: Path):
+    base_file = write_base(tmp_path / "b.txt", base_model())
+
+    custom_rps = {
+        "custom_center": {"name": "Custom Center", "z": 12.34, "short_label": "CC"},
+    }
+    result = generate_mcnp_inputs(
+        str(base_file),
+        str(tmp_path / "out"),
+        20.0,
+        "custom_center",
+        "10000000",
+        energies=[0.662],
+        dry_run=True,
+        reference_points=custom_rps,
+    )
+
+    assert result["ok"] is True
+    # z = 12.34 - 20.0 = -7.66 → "-7.6600"
+    assert result["metadata"]["z_cm"] == "-7.6600"
+    content = result["planned_files"][0]["content_preview"]
+    assert "TR1 0 0 -7.6600" in content
+
+
+def test_generator_reports_error_for_bad_reference_point(tmp_path: Path):
+    base_file = write_base(tmp_path / "b.txt", base_model())
+
+    result = generate_mcnp_inputs(
+        str(base_file),
+        str(tmp_path / "out"),
+        20.0,
+        "nonexistent_center",
+        "10000000",
+        energies=[0.662],
+        dry_run=True,
+    )
+
+    assert result["ok"] is False
+    assert any("nonexistent_center" in e for e in result["errors"])
+    assert any("crystal_center" in e for e in result["errors"])
+
+
+def test_generator_uses_profile_name_match_for_metadata(tmp_path: Path):
+    base_file = write_base(tmp_path / "b.txt", base_model())
+
+    custom_rps = {
+        "lab_ref": {"name": "Lab Reference Point", "z": 5.0, "short_label": "LR"},
+    }
+    result = generate_mcnp_inputs(
+        str(base_file),
+        str(tmp_path / "out"),
+        10.0,
+        "Lab Reference Point",
+        "10000000",
+        energies=[0.662],
+        dry_run=True,
+        reference_points=custom_rps,
+    )
+
+    assert result["ok"] is True
+    assert result["metadata"]["reference_short"] == "Lab Reference Point"
+    # z = 5.0 - 10.0 = -5.0
+    assert "TR1 0 0 -5.0000" in result["planned_files"][0]["content_preview"]

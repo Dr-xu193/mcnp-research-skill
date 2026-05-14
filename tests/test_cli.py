@@ -243,3 +243,125 @@ def test_top_level_cli_origin_export_execute_without_confirm_is_rejected(tmp_pat
     payload = json.loads(completed.stdout)
     assert payload["ok"] is False
     assert any("confirm" in error.lower() for error in payload["errors"])
+
+
+# ---------------------------------------------------------------------------
+# generate-inputs with --profile-path / --profile-name
+# ---------------------------------------------------------------------------
+
+
+def _write_profiles_yaml(path: Path, *, active: str = "lab2", extra_profile: str | None = None) -> Path:
+    lines = [
+        f"active_profile: {active}",
+        "profiles:",
+        "  default:",
+        "    detector:",
+        "      reference_points:",
+        "        crystal_center:",
+        '          name: "几何中心"',
+        "          z: 3.81",
+        '          short_label: "Center"',
+        "  lab2:",
+        "    detector:",
+        "      reference_points:",
+        "        custom_center:",
+        '          name: "Custom Center"',
+        "          z: 12.34",
+        '          short_label: "CC"',
+    ]
+    if extra_profile:
+        lines.append(f"  {extra_profile}:")
+        lines.append("    detector:")
+        lines.append("      reference_points: {}")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return path
+
+
+def _write_minimal_config(path: Path, base_file: Path, output_dir: Path, reference_point: str = "crystal_center") -> Path:
+    path.write_text(
+        f'base_file: "{base_file.as_posix()}"\n'
+        f'output_dir: "{output_dir.as_posix()}"\n'
+        "distance_cm: 20\n"
+        f'reference_point: "{reference_point}"\n'
+        'nps: "10000000"\n'
+        "energies:\n"
+        "  - 0.662\n"
+        "composite_sources: []\n"
+        "custom_energy: null\n"
+        "geb_enabled: false\n"
+        'mpi_command: "echo"\n'
+        f'plot_output: "{(output_dir / "spectra.png").as_posix()}"\n',
+        encoding="utf-8",
+    )
+    return path
+
+
+def test_generate_inputs_profile_custom_reference_point(tmp_path: Path):
+    base_file = tmp_path / "b.txt"
+    base_file.write_text("f8:p,e 1\nnps 1\n", encoding="utf-8")
+    profiles_path = _write_profiles_yaml(tmp_path / "profiles.yaml")
+    config_path = _write_minimal_config(
+        tmp_path / "cfg.yaml", base_file, tmp_path / "work", reference_point="custom_center"
+    )
+
+    completed = subprocess.run(
+        [
+            sys.executable, "-m", "mcnp_research_skill.cli", "generate-inputs",
+            "--config", str(config_path),
+            "--profile-path", str(profiles_path),
+            "--profile-name", "lab2",
+            "--dry-run",
+        ],
+        cwd=Path.cwd(), text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    )
+    assert completed.returncode == 0
+    payload = json.loads(completed.stdout)
+    assert payload["ok"] is True
+    # z = 12.34 - 20.0 = -7.66
+    content = payload["planned_files"][0]["content_preview"]
+    assert "TR1 0 0 -7.6600" in content
+
+
+def test_generate_inputs_profile_bad_reference_point_returns_json_error(tmp_path: Path):
+    base_file = tmp_path / "b.txt"
+    base_file.write_text("f8:p,e 1\nnps 1\n", encoding="utf-8")
+    profiles_path = _write_profiles_yaml(tmp_path / "profiles.yaml")
+    config_path = _write_minimal_config(
+        tmp_path / "cfg.yaml", base_file, tmp_path / "work", reference_point="nonexistent"
+    )
+
+    completed = subprocess.run(
+        [
+            sys.executable, "-m", "mcnp_research_skill.cli", "generate-inputs",
+            "--config", str(config_path),
+            "--profile-path", str(profiles_path),
+            "--profile-name", "lab2",
+            "--dry-run",
+        ],
+        cwd=Path.cwd(), text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    )
+    assert completed.returncode != 0, f"stdout={completed.stdout}"
+    payload = json.loads(completed.stdout)
+    assert payload["ok"] is False
+    assert any("nonexistent" in e for e in payload["errors"])
+
+
+def test_generate_inputs_without_profile_uses_builtin_reference_points(tmp_path: Path):
+    base_file = tmp_path / "b.txt"
+    base_file.write_text("f8:p,e 1\nnps 1\n", encoding="utf-8")
+    config_path = _write_minimal_config(tmp_path / "cfg.yaml", base_file, tmp_path / "work")
+
+    completed = subprocess.run(
+        [
+            sys.executable, "-m", "mcnp_research_skill.cli", "generate-inputs",
+            "--config", str(config_path),
+            "--dry-run",
+        ],
+        cwd=Path.cwd(), text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    )
+    assert completed.returncode == 0
+    payload = json.loads(completed.stdout)
+    assert payload["ok"] is True
+    content = payload["planned_files"][0]["content_preview"]
+    # crystal_center z=3.81, distance=20 → -16.19
+    assert "TR1 0 0 -16.1900" in content
