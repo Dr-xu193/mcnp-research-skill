@@ -1,0 +1,54 @@
+1x1 NaI(Tl) unverified template — MCNP5 compatible starter deck
+c
+c   === STATUS: UNVERIFIED TEMPLATE ===
+c   This is NOT a physically validated model.  It is a simplified
+c   MCNP5-compatible starter deck.  User MUST validate all dimensions,
+c   materials, and tally settings against their own detector datasheet
+c   before using for real analysis.
+c
+c   Sources / basis:
+c     - NaI(Tl) density 3.67 g/cm3, composition from A.txt fixture m1
+c     - Al housing material from A.txt fixture m3
+c     - Air composition from A.txt fixture m6
+c     - Crystal nominal dimensions: 1 inch diameter x 1 inch length
+c       (Saint-Gobain / common vendor datasheet convention)
+c       Conversion: 1 inch = 2.54 cm; radius = diameter / 2 = 1.27 cm
+c     - Al housing wall thickness: 0.1 cm (assumption — user MUST validate)
+c     - Al front window thickness: 0.1 cm (assumption — user MUST validate)
+c     - No PMT, reflector, optical window, or rear structure included
+c       (insufficient verified data for 1x1)
+c
+c   Geometry summary (z-axis is detector axis, front → back):
+c     z = -0.10 : Al front window front face
+c     z =  0.00 : crystal front face / Al window back face
+c     z =  2.54 : crystal back face (1 inch from front)
+c
+c   Reference points: NONE verified.
+c   The z=0 plane is a TEMPLATE COORDINATE CONVENTION, not a
+c   measured physical surface.  Use explicit --reference-position
+c   for sweeps; do not request "front_surface" by name.
+c
+c   --- cells ---
+101  1 -3.67  -21  11 -12          imp:p=1 imp:e=1  $ NaI(Tl) crystal
+201  2 -2.70  -23  22 -11          imp:p=1 imp:e=1  $ Al front window
+202  2 -2.70   21 -23  11 -12      imp:p=1 imp:e=1  $ Al housing wall
+999  3 -0.0012 -99 #101 #201 #202  imp:p=1 imp:e=1  $ air / world interior
+1000 0         99                   imp:p=0 imp:e=0  $ graveyard
+
+c   --- surfaces ---
+11  pz  0.0     $ crystal front face (template convention)
+12  pz  2.54    $ crystal back face (1 inch)
+21  cz  1.27    $ crystal radius (0.5 inch)
+22  pz -0.1     $ Al front window outer face (1 mm assumed)
+23  cz  1.37    $ Al housing outer radius (1 mm wall assumed)
+99  so  100.0   $ world sphere
+
+c   --- data ---
+mode p e
+m1  11000 -0.1534 53000 -0.8466         $ NaI(Tl) — from A.txt fixture m1
+m2  13000 -1.0000                        $ Al — from A.txt fixture m3
+m3  7000 -0.7550 8000 -0.2320 18000 -0.0130  $ air — from A.txt fixture m6
+sdef pos=0 0 -10 par=2 erg=0.662        $ placeholder point source (10 cm)
+f8:p,e 101
+e8  0 1024i 2.5
+nps 100000

@@ -40,17 +40,31 @@ def _fixture_lines():
 # registry boundary
 # ==================================================================
 
-def test_registry_only_has_nai_3x3_verified():
-    """No 1x1, 2x2, or other unverified NaI models."""
+def test_registry_has_correct_entries():
+    """Registry must contain exactly: nai_3x3_verified + nai_1x1_template + nai_2x2_template."""
     from mcnp_research_skill.models.registry import list_models, get_model
 
     models = list_models()
     ids = [m["id"] for m in models]
-    assert ids == ["nai_3x3_verified"]
+    assert "nai_3x3_verified" in ids
+    assert "nai_1x1_template" in ids
+    assert "nai_2x2_template" in ids
+    assert len(models) == 3
 
-    # Explicitly reject any unverified NaI sizes
-    for bogus in ("nai_1x1_verified", "nai_2x2_verified", "nai_1_2_inch"):
+    # Explicitly reject any verified 1x1/2x2
+    for bogus in ("nai_1x1_verified", "nai_2x2_verified", "nai_1_2_inch_verified"):
         assert get_model(bogus) is None
+
+    # Templates must be verified=False
+    t1 = get_model("nai_1x1_template")
+    assert t1["verified"] is False
+    assert t1["status"] == "template"
+    assert t1["requires_user_validation"] is True
+
+    t2 = get_model("nai_2x2_template")
+    assert t2["verified"] is False
+    assert t2["status"] == "template"
+    assert t2["requires_user_validation"] is True
 
 
 def test_registry_entry_has_no_reference_points():
@@ -69,13 +83,13 @@ def test_list_models_includes_nai_3x3_verified():
     from mcnp_research_skill.models.registry import list_models, get_model
 
     models = list_models()
-    assert len(models) == 1
-    assert models[0]["id"] == "nai_3x3_verified"
-    assert "3x3" in models[0]["display_name"]
-    assert "A.txt" in models[0]["source"]
+    assert len(models) == 3
+    ids = [m["id"] for m in models]
+    assert "nai_3x3_verified" in ids
 
     m = get_model("nai_3x3_verified")
     assert m is not None
+    assert m["verified"] is True
     assert Path(m["deck_path"]).is_file()
 
 
@@ -555,8 +569,11 @@ def test_cli_models_list():
     assert r.returncode == 0
     p = json.loads(r.stdout)
     assert p["ok"]
-    assert len(p["models"]) == 1
-    assert p["models"][0]["id"] == "nai_3x3_verified"
+    assert len(p["models"]) == 3
+    ids = [m["id"] for m in p["models"]]
+    assert "nai_3x3_verified" in ids
+    assert "nai_1x1_template" in ids
+    assert "nai_2x2_template" in ids
 
 
 def test_cli_models_inspect():
@@ -711,3 +728,341 @@ def test_explicit_reference_position_works_for_sweep(tmp_path):
     assert d10.exists()
     text = d10.read_text(encoding="utf-8")
     assert "sdef pos=0 0 10 par=2 erg=0.662" in text
+
+
+# ==================================================================
+# 1x1 / 2x2 template tests
+# ==================================================================
+
+# --- registry ---
+
+def test_template_entries_have_correct_metadata():
+    """Template entries must have verified=False, status=template, requires_user_validation=True."""
+    from mcnp_research_skill.models.registry import get_model
+
+    for tid in ("nai_1x1_template", "nai_2x2_template"):
+        m = get_model(tid)
+        assert m is not None, f"{tid} missing"
+        assert m["verified"] is False, f"{tid} verified must be False"
+        assert m["status"] == "template"
+        assert m["requires_user_validation"] is True
+        assert "assumptions" in m
+        assert isinstance(m["assumptions"], list)
+        assert len(m["assumptions"]) > 0
+
+
+def test_template_no_verified_siblings():
+    """No nai_1x1_verified or nai_2x2_verified must exist."""
+    from mcnp_research_skill.models.registry import get_model
+
+    assert get_model("nai_1x1_verified") is None
+    assert get_model("nai_2x2_verified") is None
+
+
+# --- deck hygiene ---
+
+def test_1x1_template_max_line_length():
+    """1x1 template: every line <= 80 columns."""
+    from mcnp_research_skill.models.registry import resolve_deck_path
+
+    lines = resolve_deck_path("nai_1x1_template").read_text(encoding="utf-8").splitlines()
+    for i, line in enumerate(lines, 1):
+        assert len(line.rstrip("\n")) <= 80, f"1x1 line {i} exceeds 80: {len(line.rstrip())}"
+
+
+def test_2x2_template_max_line_length():
+    """2x2 template: every line <= 80 columns."""
+    from mcnp_research_skill.models.registry import resolve_deck_path
+
+    lines = resolve_deck_path("nai_2x2_template").read_text(encoding="utf-8").splitlines()
+    for i, line in enumerate(lines, 1):
+        assert len(line.rstrip("\n")) <= 80, f"2x2 line {i} exceeds 80: {len(line.rstrip())}"
+
+
+def test_template_no_tabs():
+    """Neither template may contain tabs."""
+    from mcnp_research_skill.models.registry import resolve_deck_path
+
+    for tid in ("nai_1x1_template", "nai_2x2_template"):
+        text = resolve_deck_path(tid).read_text(encoding="utf-8")
+        assert "\t" not in text, f"{tid} contains tabs"
+
+
+def test_template_no_bare_chinese():
+    """Templates must have no bare Chinese outside comment cards."""
+    import re
+    from mcnp_research_skill.models.registry import resolve_deck_path
+
+    for tid in ("nai_1x1_template", "nai_2x2_template"):
+        lines = resolve_deck_path(tid).read_text(encoding="utf-8").splitlines()
+        for i, line in enumerate(lines, 1):
+            has_cjk = bool(re.search(r"[一-鿿]", line))
+            if has_cjk:
+                assert line.lstrip().startswith(("c ", "C ")), (
+                    f"{tid} line {i}: bare Chinese outside comment card"
+                )
+
+
+def test_template_no_mcnp6_syntax():
+    """Templates must not use MCNP6-only syntax."""
+    from mcnp_research_skill.models.registry import resolve_deck_path
+
+    for tid in ("nai_1x1_template", "nai_2x2_template"):
+        text = resolve_deck_path(tid).read_text(encoding="utf-8").lower()
+        for kw in ("fmask", "embee", "embes", "embem", "embed", "&&"):
+            assert kw not in text, f"{tid} contains MCNP6 keyword: {kw}"
+
+
+def test_templates_diagnostics_blocking_zero():
+    """Both templates must pass diagnostics with zero blocking issues."""
+    from mcnp_research_skill.mcnp_input.diagnostics import diagnose_deck_file
+    from mcnp_research_skill.models.registry import resolve_deck_path
+
+    for tid in ("nai_1x1_template", "nai_2x2_template"):
+        diag = diagnose_deck_file(str(resolve_deck_path(tid)), mcnp_version="mcnp5_rsicc_1_14")
+        assert diag["ok"] is True, f"{tid} diagnostics not ok: {diag['issues']}"
+        assert diag["summary"]["blocking"] == 0
+        assert diag["summary"]["errors"] == 0
+
+
+def test_templates_inspect_errors_empty():
+    """Both templates must pass inspect_deck with zero errors."""
+    from mcnp_research_skill.mcnp_input.inspection import inspect_deck_file
+    from mcnp_research_skill.models.registry import resolve_deck_path
+
+    for tid in ("nai_1x1_template", "nai_2x2_template"):
+        insp = inspect_deck_file(str(resolve_deck_path(tid)))
+        assert insp["ok"] is True, f"{tid} inspect not ok"
+        assert insp["errors"] == [], f"{tid} inspect errors: {insp['errors']}"
+
+
+# --- inspect ---
+
+def test_inspect_1x1_template():
+    """1x1 template must have MODE p e, F8, E8, no GEB."""
+    from mcnp_research_skill.mcnp_input.inspection import inspect_deck_file
+    from mcnp_research_skill.models.registry import resolve_deck_path
+
+    insp = inspect_deck_file(str(resolve_deck_path("nai_1x1_template")))
+    assert insp["mode"]["particles"] == ["p", "e"]
+    assert any(t["kind"] == "F8" for t in insp["tallies"])
+    assert len(insp["energy_cards"]) >= 1
+    assert insp["geb"]["present"] is False
+
+
+def test_inspect_2x2_template():
+    """2x2 template must have MODE p e, F8, E8, no GEB."""
+    from mcnp_research_skill.mcnp_input.inspection import inspect_deck_file
+    from mcnp_research_skill.models.registry import resolve_deck_path
+
+    insp = inspect_deck_file(str(resolve_deck_path("nai_2x2_template")))
+    assert insp["mode"]["particles"] == ["p", "e"]
+    assert any(t["kind"] == "F8" for t in insp["tallies"])
+    assert len(insp["energy_cards"]) >= 1
+    assert insp["geb"]["present"] is False
+
+
+def test_templates_no_geb_no_error():
+    """No GEB must NOT be an error for templates."""
+    from mcnp_research_skill.mcnp_input.inspection import inspect_deck_file
+    from mcnp_research_skill.models.registry import resolve_deck_path
+
+    for tid in ("nai_1x1_template", "nai_2x2_template"):
+        insp = inspect_deck_file(str(resolve_deck_path(tid)))
+        assert insp["geb"]["present"] is False
+        assert insp["errors"] == []
+
+
+# --- source strategies ---
+
+def test_prepare_1x1_preserve(tmp_path):
+    """1x1 template preserve_existing_source must succeed."""
+    from mcnp_research_skill.workflow.prepare import prepare_workflow
+    from mcnp_research_skill.models.registry import resolve_deck_path
+
+    work = tmp_path / "w"
+    result = prepare_workflow(
+        input_path=str(resolve_deck_path("nai_1x1_template")),
+        work_dir=str(work), workflow_mode="patch-and-run",
+        source_strategy="preserve_existing_source", postprocess="none",
+    )
+    assert result["ok"] is True
+    assert (work / "nai_1x1_template.txt").exists()
+
+
+def test_prepare_1x1_point_sdef(tmp_path):
+    """1x1 template point_sdef_pos must replace SDEF."""
+    from mcnp_research_skill.workflow.prepare import prepare_workflow
+    from mcnp_research_skill.models.registry import resolve_deck_path
+
+    work = tmp_path / "w"
+    result = prepare_workflow(
+        input_path=str(resolve_deck_path("nai_1x1_template")),
+        work_dir=str(work), workflow_mode="patch-and-run",
+        source_strategy="point_sdef_pos",
+        source_position=(0, 0, 10), source_energy=0.662,
+        nps="1e6", postprocess="none",
+    )
+    assert result["ok"] is True
+    text = (work / "nai_1x1_template.txt").read_text(encoding="utf-8")
+    assert "sdef pos=0 0 10 par=2 erg=0.662" in text
+
+
+def test_prepare_1x1_disk_tr1(tmp_path):
+    """1x1 template disk_tr1 must generate TR/SI/SP."""
+    from mcnp_research_skill.workflow.prepare import prepare_workflow
+    from mcnp_research_skill.models.registry import resolve_deck_path
+
+    work = tmp_path / "w"
+    result = prepare_workflow(
+        input_path=str(resolve_deck_path("nai_1x1_template")),
+        work_dir=str(work), workflow_mode="patch-and-run",
+        source_strategy="disk_tr1",
+        source_position=(0, 0, 10), source_radius=0.15, source_energy=0.662,
+        nps="1e6", postprocess="none",
+    )
+    assert result["ok"] is True
+    text = (work / "nai_1x1_template.txt").read_text(encoding="utf-8")
+    assert "sdef pos=0 0 0 rad=" in text
+    assert "tr" in text.lower()
+
+
+def test_prepare_2x2_preserve(tmp_path):
+    """2x2 template preserve_existing_source must succeed."""
+    from mcnp_research_skill.workflow.prepare import prepare_workflow
+    from mcnp_research_skill.models.registry import resolve_deck_path
+
+    work = tmp_path / "w"
+    result = prepare_workflow(
+        input_path=str(resolve_deck_path("nai_2x2_template")),
+        work_dir=str(work), workflow_mode="patch-and-run",
+        source_strategy="preserve_existing_source", postprocess="none",
+    )
+    assert result["ok"] is True
+    assert (work / "nai_2x2_template.txt").exists()
+
+
+def test_prepare_2x2_disk_tr1(tmp_path):
+    """2x2 template disk_tr1 must auto-select unused card id."""
+    from mcnp_research_skill.workflow.prepare import prepare_workflow
+    from mcnp_research_skill.models.registry import resolve_deck_path
+
+    work = tmp_path / "w"
+    result = prepare_workflow(
+        input_path=str(resolve_deck_path("nai_2x2_template")),
+        work_dir=str(work), workflow_mode="patch-and-run",
+        source_strategy="disk_tr1",
+        source_position=(0, 0, 15), source_radius=0.2, source_energy=0.662,
+        nps="1e6", postprocess="none",
+    )
+    assert result["ok"] is True
+    text = (work / "nai_2x2_template.txt").read_text(encoding="utf-8")
+    # No existing TR/SI/SP, so card id should be 1
+    assert "tr1 " in text.lower() or "tr2 " in text.lower()
+
+
+# --- front surface boundary ---
+
+def test_templates_have_no_front_surface():
+    """Templates must not define front_surface or detector_front in metadata."""
+    from mcnp_research_skill.models.registry import get_model
+
+    for tid in ("nai_1x1_template", "nai_2x2_template"):
+        m = get_model(tid)
+        for key in m:
+            assert "front_surface" not in str(key).lower(), (
+                f"{tid} defines front_surface-like key: {key}"
+            )
+            assert "detector_front" not in str(key).lower()
+
+
+def test_front_surface_unknown_for_templates():
+    """"front_surface" must not resolve for templates (no profile override)."""
+    from mcnp_research_skill.models.registry import validate_reference_point
+
+    result = validate_reference_point("front_surface")
+    assert result["ok"] is False
+    assert result["errors"][0]["code"] == "UNKNOWN_REFERENCE_POINT"
+
+
+def test_template_explicit_reference_position_works(tmp_path):
+    """With explicit --reference-position, sweep works on templates."""
+    from mcnp_research_skill.workflow.sweep import prepare_point_sweep
+    from mcnp_research_skill.models.registry import resolve_deck_path
+
+    for tid in ("nai_1x1_template", "nai_2x2_template"):
+        work = tmp_path / tid
+        result = prepare_point_sweep(
+            input_path=str(resolve_deck_path(tid)),
+            work_dir=str(work), distances=[10],
+            axis="z", reference_position=(0, 0, 0), direction=1,
+            source_energy=0.662, nps="1e6", postprocess="none",
+        )
+        assert result["ok"] is True
+        assert result["prepared_count"] == 1
+
+
+# --- CLI: models inspect templates ---
+
+def test_cli_models_inspect_1x1():
+    r = _run("models", "inspect", "nai_1x1_template")
+    assert r.returncode == 0
+    p = json.loads(r.stdout)
+    assert p["ok"]
+    assert p["mode"]["particles"] == ["p", "e"]
+    assert any(t["kind"] == "F8" for t in p["tallies"])
+
+
+def test_cli_models_inspect_2x2():
+    r = _run("models", "inspect", "nai_2x2_template")
+    assert r.returncode == 0
+    p = json.loads(r.stdout)
+    assert p["ok"]
+    assert p["mode"]["particles"] == ["p", "e"]
+
+
+# --- CLI: prepare-workflow with templates ---
+
+def test_cli_prepare_1x1_point_sdef(tmp_path):
+    r = _run("prepare-workflow", "--builtin-model", "nai_1x1_template",
+             "--work-dir", str(tmp_path / "w"),
+             "--workflow-mode", "patch-and-run",
+             "--source-strategy", "point_sdef_pos",
+             "--source-position", "0", "0", "10",
+             "--source-energy", "0.662",
+             "--nps", "1e6",
+             "--postprocess", "none")
+    assert r.returncode == 0
+    p = json.loads(r.stdout)
+    assert p["ok"]
+
+
+def test_cli_prepare_2x2_disk_tr1(tmp_path):
+    r = _run("prepare-workflow", "--builtin-model", "nai_2x2_template",
+             "--work-dir", str(tmp_path / "w"),
+             "--workflow-mode", "patch-and-run",
+             "--source-strategy", "disk_tr1",
+             "--source-position", "0", "0", "15",
+             "--source-radius", "0.2",
+             "--source-energy", "0.662",
+             "--nps", "1e6",
+             "--postprocess", "none")
+    assert r.returncode == 0
+    p = json.loads(r.stdout)
+    assert p["ok"]
+
+
+# --- CLI: diagnose-deck on templates ---
+
+def test_cli_diagnose_1x1_ok():
+    r = _run("diagnose-deck", "--builtin-model", "nai_1x1_template")
+    assert r.returncode == 0
+    p = json.loads(r.stdout)
+    assert p["ok"]
+
+
+def test_cli_diagnose_2x2_ok():
+    r = _run("diagnose-deck", "--builtin-model", "nai_2x2_template")
+    assert r.returncode == 0
+    p = json.loads(r.stdout)
+    assert p["ok"]

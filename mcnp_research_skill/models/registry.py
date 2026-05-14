@@ -1,8 +1,8 @@
-"""Built-in verified MCNP model registry.
+"""Built-in MCNP model registry.
 
-Each entry maps a stable ``model_id`` to a deck fixture shipped with the
-package.  Only models that have been physically verified (real detector,
-known geometry, validated MCNP output) belong here.
+Entries may be *verified* (``verified=True`` — real detector, known
+geometry, validated MCNP output) or *template* (``verified=False``,
+``status="template"`` — simplified starter deck for user calibration).
 """
 
 from __future__ import annotations
@@ -16,8 +16,62 @@ MODEL_ENTRIES: dict[str, dict[str, Any]] = {
     "nai_3x3_verified": {
         "id": "nai_3x3_verified",
         "display_name": "3x3 NaI(Tl) verified deck",
+        "verified": True,
+        "status": "verified",
         "source": "A.txt — encapsulated Am-241 disk source, TR1 translated, F8 pulse-height tally on crystal cell 104",
         "deck_path": str(_FIXTURES / "nai_3x3_verified.txt"),
+    },
+    "nai_1x1_template": {
+        "id": "nai_1x1_template",
+        "display_name": "1x1 NaI(Tl) unverified template",
+        "verified": False,
+        "status": "template",
+        "template": True,
+        "requires_user_validation": True,
+        "source": "Saint-Gobain / vendor datasheet nominal dimensions (1\" dia x 1\" length)",
+        "basis": (
+            "Crystal: NaI(Tl) 3.67 g/cm3 from A.txt fixture m1. "
+            "Al housing from A.txt fixture m3. "
+            "Air from A.txt fixture m6. "
+            "1 inch = 2.54 cm; radius = 1.27 cm."
+        ),
+        "assumptions": [
+            "Al housing wall thickness 0.1 cm (1 mm) — user MUST validate",
+            "Al front window thickness 0.1 cm (1 mm) — user MUST validate",
+            "No PMT / reflector / optical window / rear structure",
+            "z=0 plane is a template coordinate convention, not a measured surface",
+        ],
+        "notes": (
+            "Simplified MCNP5 starter deck.  User must calibrate against "
+            "their own detector datasheet before real analysis."
+        ),
+        "deck_path": str(_FIXTURES / "nai_1x1_template.txt"),
+    },
+    "nai_2x2_template": {
+        "id": "nai_2x2_template",
+        "display_name": "2x2 NaI(Tl) unverified template",
+        "verified": False,
+        "status": "template",
+        "template": True,
+        "requires_user_validation": True,
+        "source": "Saint-Gobain / vendor datasheet nominal dimensions (2\" dia x 2\" length)",
+        "basis": (
+            "Crystal: NaI(Tl) 3.67 g/cm3 from A.txt fixture m1. "
+            "Al housing from A.txt fixture m3. "
+            "Air from A.txt fixture m6. "
+            "1 inch = 2.54 cm; radius = 2.54 cm."
+        ),
+        "assumptions": [
+            "Al housing wall thickness 0.1 cm (1 mm) — user MUST validate",
+            "Al front window thickness 0.1 cm (1 mm) — user MUST validate",
+            "No PMT / reflector / optical window / rear structure",
+            "z=0 plane is a template coordinate convention, not a measured surface",
+        ],
+        "notes": (
+            "Simplified MCNP5 starter deck.  User must calibrate against "
+            "their own detector datasheet before real analysis."
+        ),
+        "deck_path": str(_FIXTURES / "nai_2x2_template.txt"),
     },
 }
 

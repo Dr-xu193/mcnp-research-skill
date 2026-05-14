@@ -259,12 +259,41 @@ detector sizes or geometries are included.
 
 ### Available models
 
-| Model ID | Display Name | Source |
-|----------|-------------|--------|
-| `nai_3x3_verified` | 3x3 NaI(Tl) verified deck | A.txt — encapsulated Am-241 disk source, F8 pulse-height tally |
+| Model ID | Display Name | Verified | Status |
+|----------|-------------|----------|--------|
+| `nai_3x3_verified` | 3x3 NaI(Tl) verified deck | **yes** | verified |
+| `nai_1x1_template` | 1x1 NaI(Tl) unverified template | **no** | template |
+| `nai_2x2_template` | 2x2 NaI(Tl) unverified template | **no** | template |
 
-**Only `nai_3x3_verified` exists.**  There is no 1/2 inch NaI, 2x2 NaI, or
-any other NaI size.  Do not assume unverified models are available.
+**`nai_1x1_template` and `nai_2x2_template` are NOT verified models.**
+They are simplified MCNP5-compatible starter decks.  Users MUST validate
+all dimensions, materials, and settings against their own detector
+datasheet before using for real analysis.
+
+### Template design (1x1 / 2x2)
+
+| Property | 1x1 Template | 2x2 Template |
+|----------|-------------|-------------|
+| Crystal diameter | 1 inch (2.54 cm) | 2 inch (5.08 cm) |
+| Crystal radius | 1.27 cm | 2.54 cm |
+| Crystal length | 1 inch (2.54 cm) | 2 inch (5.08 cm) |
+| NaI(Tl) material | From A.txt fixture m1 | From A.txt fixture m1 |
+| Al housing | From A.txt fixture m3 | From A.txt fixture m3 |
+| Al wall thickness | 0.1 cm (assumed) | 0.1 cm (assumed) |
+| Al window thickness | 0.1 cm (assumed) | 0.1 cm (assumed) |
+| PMT / rear structure | None | None |
+| GEB | None | None |
+| Reference points | None verified | None verified |
+
+**Assumptions** (both templates):
+- Al housing wall 0.1 cm — user MUST validate
+- Al front window 0.1 cm — user MUST validate
+- No PMT, reflector, optical window, or rear structure
+- z=0 is a template coordinate convention, not a measured physical surface
+- Crystal dimensions from Saint-Gobain / vendor nominal datasheet conventions
+
+**Basis**: NaI(Tl) composition and density from verified A.txt fixture.
+Aluminum and air compositions from A.txt fixture.
 
 ### Boundaries
 
