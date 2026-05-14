@@ -156,6 +156,46 @@ def test_cli_init_emits_ascii_safe_json(tmp_path: Path):
     completed.stdout.encode("ascii")
 
 
+def test_cli_init_profile_lab2_creates_real_profile(tmp_path: Path):
+    target = tmp_path / "profiles.yaml"
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "mcnp_research_skill.cli",
+            "init",
+            "--path",
+            str(target),
+            "--profile",
+            "lab2",
+        ],
+        cwd=Path.cwd(),
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    assert completed.returncode == 0
+    payload = json.loads(completed.stdout)
+    assert payload["ok"] is True
+    assert payload["active_profile"] == "lab2"
+    assert target.exists()
+
+    from mcnp_research_skill.config.profile import load_active_profile, load_profiles
+
+    profiles = load_profiles(path=str(target))
+    assert "lab2" in profiles["profiles"]
+    lab2 = profiles["profiles"]["lab2"]
+    assert lab2["mcnp"]["version"] == "mcnp5"
+    assert lab2["detector"]["reference_points"]["crystal_center"]["z"] == 3.81
+
+    # load_active_profile must succeed with lab2
+    loaded = load_active_profile(path=str(target))
+    assert loaded["mcnp"]["version"] == "mcnp5"
+
+    loaded_explicit = load_active_profile(path=str(target), profile_name="lab2")
+    assert loaded_explicit["mcnp"]["version"] == "mcnp5"
+
+
 # ---------------------------------------------------------------------------
 # Non-regression: init must not break existing subcommands
 # ---------------------------------------------------------------------------

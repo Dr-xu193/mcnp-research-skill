@@ -130,19 +130,24 @@ def load_active_profile(
 ) -> dict[str, Any]:
     """Return the active profile dict, user overrides merged onto defaults.
 
-    When no profiles file exists the built-in ``default`` profile is returned
-    without error.
+    When no profiles file exists and no explicit *profile_name* is given the
+    built-in ``default`` profile is returned without error.  Raises
+    ``ValueError`` when the resolved profile name is not found among the
+    available profiles.
     """
     profiles = load_profiles(path)
 
     active_name: str = profile_name or str(profiles.get("active_profile", "default"))
     all_profiles: dict[str, Any] = profiles.get("profiles", {})
 
-    builtin_default = copy.deepcopy(DEFAULT_PROFILE["profiles"]["default"])
-
     if active_name not in all_profiles:
-        return builtin_default
+        available = sorted(all_profiles.keys())
+        raise ValueError(
+            f"Profile '{active_name}' not found. "
+            f"Available: {available}"
+        )
 
+    builtin_default = copy.deepcopy(DEFAULT_PROFILE["profiles"]["default"])
     return deep_merge(builtin_default, all_profiles[active_name])
 
 
@@ -174,6 +179,8 @@ def write_default_profiles(
     try:
         data = copy.deepcopy(DEFAULT_PROFILE)
         data["active_profile"] = active_profile
+        if active_profile != "default" and active_profile not in data.get("profiles", {}):
+            data["profiles"][active_profile] = copy.deepcopy(DEFAULT_PROFILE["profiles"]["default"])
         _dump_yaml(data, target)
     except OSError as exc:
         return {

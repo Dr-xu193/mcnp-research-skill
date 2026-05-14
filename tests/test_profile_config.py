@@ -5,6 +5,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+import pytest
+
 from mcnp_research_skill.config.defaults import DEFAULT_PROFILE
 from mcnp_research_skill.config.profile import (
     deep_merge,
@@ -165,7 +167,8 @@ def test_load_active_profile_uses_named_profile(tmp_path: Path):
     assert profile["detector"]["reference_points"]["crystal_center"]["z"] == 3.81
 
 
-def test_load_active_profile_falls_back_to_default_when_named_missing(tmp_path: Path):
+def test_load_active_profile_raises_when_named_profile_missing(tmp_path: Path):
+    """Explicit profile_name must exist — silent fallback is unsafe."""
     target = tmp_path / "profiles.yaml"
     target.write_text(
         'active_profile: default\n'
@@ -175,15 +178,76 @@ def test_load_active_profile_falls_back_to_default_when_named_missing(tmp_path: 
         '      mpi_command: "default_mpi"\n',
         encoding="utf-8",
     )
-    profile = load_active_profile(path=str(target), profile_name="nonexistent")
-    assert profile["mcnp"]["mpi_command"] == ""
-    assert profile["mcnp"]["version"] == "mcnp5"
+    with pytest.raises(ValueError, match="nonexistent"):
+        load_active_profile(path=str(target), profile_name="nonexistent")
 
 
 def test_load_profiles_returns_defaults_for_nonexistent_file(tmp_path: Path):
     profiles = load_profiles(path=str(tmp_path / "nope.yaml"))
     assert profiles["active_profile"] == "default"
     assert profiles["profiles"]["default"]["mcnp"]["version"] == "mcnp5"
+
+
+def test_write_default_profiles_creates_named_profile_with_full_content(tmp_path: Path):
+    target = tmp_path / "profiles.yaml"
+    result = write_default_profiles(path=str(target), active_profile="lab2")
+    assert result["ok"] is True
+    text = target.read_text(encoding="utf-8")
+    assert "active_profile: lab2" in text
+    actual = load_profiles(path=str(target))
+    assert "lab2" in actual["profiles"]
+    lab2 = actual["profiles"]["lab2"]
+    assert lab2["mcnp"]["version"] == "mcnp5"
+    assert lab2["detector"]["reference_points"]["crystal_center"]["z"] == 3.81
+    assert "Am-241" in lab2["nuclides"]["single_energy"]
+    # profiles.default must still exist
+    assert "default" in actual["profiles"]
+
+
+def test_load_active_profile_loads_lab2_after_write(tmp_path: Path):
+    target = tmp_path / "profiles.yaml"
+    write_default_profiles(path=str(target), active_profile="lab2")
+    profile = load_active_profile(path=str(target))
+    assert profile is not None
+    # Auto-detect from YAML's active_profile should load lab2
+    assert isinstance(profile, dict)
+
+
+def test_load_active_profile_explicit_lab2_equals_auto_detect(tmp_path: Path):
+    target = tmp_path / "profiles.yaml"
+    write_default_profiles(path=str(target), active_profile="lab2")
+    auto = load_active_profile(path=str(target))
+    explicit = load_active_profile(path=str(target), profile_name="lab2")
+    assert auto == explicit
+
+
+def test_load_active_profile_raises_when_active_profile_points_to_missing(tmp_path: Path):
+    """Broken config: active_profile references a non-existent profile."""
+    target = tmp_path / "profiles.yaml"
+    target.write_text(
+        'active_profile: missing\n'
+        'profiles:\n'
+        '  default:\n'
+        '    mcnp:\n'
+        '      version: mcnp5\n',
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="missing"):
+        load_active_profile(path=str(target))
+
+
+def test_load_active_profile_raises_when_explicit_profile_missing_from_file(tmp_path: Path):
+    target = tmp_path / "profiles.yaml"
+    target.write_text(
+        'active_profile: default\n'
+        'profiles:\n'
+        '  default:\n'
+        '    mcnp:\n'
+        '      version: mcnp5\n',
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="ghost"):
+        load_active_profile(path=str(target), profile_name="ghost")
 
 
 # ---------------------------------------------------------------------------
