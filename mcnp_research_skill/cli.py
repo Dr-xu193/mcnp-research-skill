@@ -159,6 +159,9 @@ def run_command(args: argparse.Namespace) -> dict[str, Any]:
             source_position=sp,
             source_energy=getattr(args, "source_energy", None),
             source_particle=getattr(args, "source_particle", None),
+            source_radius=getattr(args, "source_radius", None),
+            source_ext=getattr(args, "source_ext", 0),
+            source_card_id=getattr(args, "source_card_id", None),
         )
         result.pop("text", None)
         return result
@@ -450,6 +453,9 @@ def build_parser() -> argparse.ArgumentParser:
     patch_parser.add_argument("--source-position", nargs=3, type=float, default=None, dest="source_position")
     patch_parser.add_argument("--source-energy", type=float, default=None, dest="source_energy")
     patch_parser.add_argument("--source-particle", default=None, dest="source_particle")
+    patch_parser.add_argument("--source-radius", type=float, default=None, dest="source_radius")
+    patch_parser.add_argument("--source-ext", type=float, default=0, dest="source_ext")
+    patch_parser.add_argument("--source-card-id", type=int, default=None, dest="source_card_id")
 
     prep_parser = subparsers.add_parser("prepare-workflow")
     prep_parser.add_argument("--input", required=True, dest="input")
