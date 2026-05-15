@@ -26,6 +26,7 @@ from .mcnp_output.tally_extractor import extract_tally_csvs
 from .mcnp_run.mpi_runner import run_mpi_batch
 from .mcnp_run.runtime import run_runtime_check
 from .workflow.nl_planner import plan_request
+from .workflow.execute_plan import execute_plan
 from .models.registry import get_model_reference_point
 from .geb.spe import fit_geb_from_spe_files
 from .origin.origin_exporter import export_origin_projects
@@ -187,11 +188,39 @@ def run_command(args: argparse.Namespace) -> dict[str, Any]:
             text = Path(args.text_file).read_text(encoding="utf-8")
         if not text.strip():
             return {"ok": False, "errors": [{"code": "MISSING_REQUEST_TEXT", "message": "Provide --text or --text-file."}]}
-        return plan_request(
+        plan = plan_request(
             text,
             np=getattr(args, "np", None),
             mpi_launcher=getattr(args, "mpi_launcher", None),
             mcnp_exe=getattr(args, "mcnp_exe", None),
+        )
+        output = getattr(args, "output", None)
+        if output:
+            import json as _json
+            Path(output).write_text(_json.dumps(plan, ensure_ascii=False, indent=2), encoding="utf-8")
+        return plan
+
+    if args.command == "execute-plan":
+        plan_file = getattr(args, "plan_file", None)
+        if not plan_file:
+            return {"ok": False, "errors": [{"code": "PLAN_FILE_NOT_FOUND", "message": "--plan-file is required."}]}
+        pf = Path(plan_file)
+        if not pf.is_file():
+            return {"ok": False, "errors": [{"code": "PLAN_FILE_NOT_FOUND", "message": f"Plan file not found: {plan_file}"}]}
+        try:
+            import json as _json
+            plan = _json.loads(pf.read_text(encoding="utf-8"))
+        except Exception:
+            return {"ok": False, "errors": [{"code": "PLAN_FILE_INVALID", "message": f"Failed to parse JSON from {plan_file}"}]}
+        return execute_plan(
+            plan,
+            execute=not bool(getattr(args, "dry_run", True)),
+            confirm_user=bool(getattr(args, "confirm_user", False)),
+            np=getattr(args, "np", None),
+            mpi_launcher=getattr(args, "mpi_launcher", None),
+            mcnp_exe=getattr(args, "mcnp_exe", None),
+            mpi_command=getattr(args, "mpi_command", None),
+            work_dir=getattr(args, "work_dir", None),
         )
 
     if args.command == "runtime-check":
@@ -638,6 +667,18 @@ def build_parser() -> argparse.ArgumentParser:
     plan_req_parser.add_argument("--np", type=int, default=None, dest="np")
     plan_req_parser.add_argument("--mpi-launcher", default=None, dest="mpi_launcher")
     plan_req_parser.add_argument("--mcnp-exe", default=None, dest="mcnp_exe")
+    plan_req_parser.add_argument("--output", default=None, dest="output")
+
+    exec_parser = subparsers.add_parser("execute-plan")
+    exec_parser.add_argument("--plan-file", required=True, dest="plan_file")
+    exec_parser.add_argument("--dry-run", action="store_true", dest="dry_run", default=True)
+    exec_parser.add_argument("--execute", action="store_false", dest="dry_run")
+    exec_parser.add_argument("--confirm-user", action="store_true", default=False, dest="confirm_user")
+    exec_parser.add_argument("--np", type=int, default=None, dest="np")
+    exec_parser.add_argument("--mpi-launcher", default=None, dest="mpi_launcher")
+    exec_parser.add_argument("--mcnp-exe", default=None, dest="mcnp_exe")
+    exec_parser.add_argument("--mpi-command", default=None, dest="mpi_command")
+    exec_parser.add_argument("--work-dir", default=None, dest="work_dir")
 
     runtime_parser = subparsers.add_parser("runtime-check")
     runtime_parser.add_argument("--np", type=int, default=None, dest="np")

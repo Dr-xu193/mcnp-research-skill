@@ -623,3 +623,95 @@ Rules:
 - `--input` and `--builtin-model` are mutually exclusive → `INPUT_CONFLICT`
 - `--reference-point` and `--reference-position` are mutually exclusive → `REFERENCE_POSITION_CONFLICT`
 - `--reference-point` requires `--builtin-model` for model-specific lookup
+
+---
+
+## Confirmation-Safe Execute Plan
+
+### Two-step workflow
+
+1. **plan-request**: Parse natural language → structured plan → `plan.json`
+2. **execute-plan**: Read plan → validate → safe execution
+
+The planner **never** executes MCNP directly.  The executor **defaults to
+dry-run** and requires explicit user confirmation before real execution.
+
+### Execution safety gates (all must pass)
+
+| Gate | Requirement |
+|------|-------------|
+| Plan status | `ready_for_review` (not `blocked`/`needs_clarification`) |
+| Required params | `missing_required` must be empty |
+| User confirmation | `--confirm-user` flag |
+| MCNP executable | Found on PATH or `--mcnp-exe` provided |
+| MPI launcher | Found on PATH or `--mpi-launcher` provided |
+
+### CLI: execute-plan
+
+```powershell
+# Dry-run (default): prepare decks only, no MCNP
+python -m mcnp_research_skill.cli execute-plan --plan-file plan.json
+
+# Execute with user confirmation
+python -m mcnp_research_skill.cli execute-plan --plan-file plan.json --execute --confirm-user
+
+# NP override
+python -m mcnp_research_skill.cli execute-plan --plan-file plan.json --execute --confirm-user --np 8
+
+# MPI launcher / MCNP exe override
+python -m mcnp_research_skill.cli execute-plan --plan-file plan.json --execute --confirm-user `
+  --mpi-launcher mpiexec --mcnp-exe C:\MCNP5\mcnp5mpi.exe
+
+# Expert: full MPI command override
+python -m mcnp_research_skill.cli execute-plan --plan-file plan.json --execute --confirm-user `
+  --mpi-command "mpirun -np 8 mcnp5mpi.exe"
+```
+
+### Plan → workflow mapping
+
+| `workflow_command` | Calls |
+|--------------------|-------|
+| `prepare-point-sweep` | `prepare_point_sweep()` |
+| `run-point-sweep` | `run_point_sweep()` |
+| `prepare-disk-sweep` | `prepare_disk_sweep()` |
+| `run-disk-sweep` | `run_disk_sweep()` |
+| `run-workflow` | `run_workflow()` |
+| `diagnose-deck` | `diagnose_deck_file()` |
+| Unsupported | `PLAN_COMMAND_UNSUPPORTED` |
+
+### Complete example
+
+```powershell
+# Step 1: Parse natural language
+python -m mcnp_research_skill.cli plan-request `
+  --text "用2英寸NaI，距离铝壳表面10到20厘米每步5厘米，Cs-137，NPS=1e7，只出CSV" `
+  --output plan.json
+
+# Step 2: AI shows human_summary and command_preview to user
+
+# Step 3: User confirms, then execute
+python -m mcnp_research_skill.cli execute-plan --plan-file plan.json `
+  --execute --confirm-user --np 8 `
+  --mpi-launcher mpirun --mcnp-exe mcnp5mpi.exe
+```
+
+### Error codes
+
+| Code | Meaning |
+|------|---------|
+| `USER_CONFIRMATION_REQUIRED` | `--execute` without `--confirm-user` |
+| `PLAN_NOT_EXECUTABLE` | Plan status is blocked/needs_clarification |
+| `PLAN_MISSING_REQUIRED` | Plan has missing required parameters |
+| `PLAN_COMMAND_UNSUPPORTED` | workflow_command not yet mappable |
+| `MCNP_NOT_FOUND` | MCNP executable not found |
+| `MPI_LAUNCHER_NOT_FOUND` | MPI launcher not found |
+| `PLAN_FILE_INVALID` | Plan file is not valid JSON |
+| `PLAN_FILE_NOT_FOUND` | Plan file does not exist |
+
+### Boundaries
+
+- `recommended_np = logical_processors + 1` is auto.py-compatible, not MPI standard
+- `--mpi-command` is an **expert override**; the recommended path is `--mpi-launcher` + `--mcnp-exe` + `--np`
+- MPI command source (`user_override` vs `runtime_preflight`) is recorded
+- Does **not** provide MCNP downloads or license workarounds
+- `execute_requested=true` in the plan is **not sufficient** for real execution; `--confirm-user` is always required
