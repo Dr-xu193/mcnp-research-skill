@@ -24,6 +24,9 @@ from .workflow.sweep import prepare_disk_sweep, prepare_point_sweep, run_disk_sw
 from .mcnp_input.generator import generate_mcnp_inputs
 from .mcnp_output.tally_extractor import extract_tally_csvs
 from .mcnp_run.mpi_runner import run_mpi_batch
+from .mcnp_run.runtime import run_runtime_check
+from .workflow.nl_planner import plan_request
+from .models.registry import get_model_reference_point
 from .geb.spe import fit_geb_from_spe_files
 from .origin.origin_exporter import export_origin_projects
 from .manifest import validate_run
@@ -129,11 +132,42 @@ def _existing_csv_files(output_dir: str) -> list[str]:
 def _resolve_input(args: argparse.Namespace) -> str:
     """Return the resolved input path: ``--builtin-model`` takes precedence over ``--input``."""
     bi = getattr(args, "builtin_model", None)
+    inp = getattr(args, "input", None)
+    if bi and inp:
+        return "__INPUT_CONFLICT__"
     if bi:
         return str(resolve_deck_path(bi))
-    if not getattr(args, "input", None):
+    if not inp:
         return ""
-    return str(args.input)
+    return str(inp)
+
+
+def _resolve_sweep_reference(args: argparse.Namespace) -> dict[str, Any]:
+    """Resolve ``--reference-point`` or ``--reference-position`` for sweep commands.
+
+    Returns ``{"ok": True, "reference_position": [...], ...}`` or
+    ``{"ok": False, "errors": [...]}``.
+    """
+    rp_name = getattr(args, "reference_point", None)
+    r_pos = getattr(args, "reference_position", None)
+    if rp_name and r_pos and r_pos != (0, 0, 0):
+        return {"ok": False, "errors": [{"code": "REFERENCE_POSITION_CONFLICT",
+            "message": "不能同时指定 --reference-point 和 --reference-position。请二选一。"}]}
+    if rp_name:
+        bi = getattr(args, "builtin_model", None)
+        inp = getattr(args, "input", None)
+        model_id = bi
+        if not model_id:
+            return {"ok": False, "errors": [{"code": "MISSING_BUILTIN_MODEL",
+                "message": "--reference-point 需要配合 --builtin-model 使用。"}]}
+        result = get_model_reference_point(model_id, rp_name)
+        if not result.get("ok"):
+            return result
+        return {"ok": True, "reference_position": result["position"],
+                "reference_point_meta": result}
+    if r_pos is None:
+        r_pos = (0, 0, 0)
+    return {"ok": True, "reference_position": list(r_pos)}
 
 
 def run_command(args: argparse.Namespace) -> dict[str, Any]:
@@ -143,6 +177,28 @@ def run_command(args: argparse.Namespace) -> dict[str, Any]:
             path=args.profile_path,
             force=bool(args.force),
             active_profile=str(args.profile_name),
+        )
+
+    if args.command == "plan-request":
+        text = ""
+        if getattr(args, "text", None):
+            text = args.text
+        elif getattr(args, "text_file", None):
+            text = Path(args.text_file).read_text(encoding="utf-8")
+        if not text.strip():
+            return {"ok": False, "errors": [{"code": "MISSING_REQUEST_TEXT", "message": "Provide --text or --text-file."}]}
+        return plan_request(
+            text,
+            np=getattr(args, "np", None),
+            mpi_launcher=getattr(args, "mpi_launcher", None),
+            mcnp_exe=getattr(args, "mcnp_exe", None),
+        )
+
+    if args.command == "runtime-check":
+        return run_runtime_check(
+            np=getattr(args, "np", None),
+            mpi_launcher=getattr(args, "mpi_launcher", None),
+            mcnp_exe=getattr(args, "mcnp_exe", None),
         )
 
     if args.command == "models":
@@ -294,15 +350,25 @@ def run_command(args: argparse.Namespace) -> dict[str, Any]:
         )
 
     if args.command == "run-point-sweep":
+        sweep_input = _resolve_input(args)
+        if sweep_input == "__INPUT_CONFLICT__":
+            return {"ok": False, "errors": [{"code": "INPUT_CONFLICT",
+                "message": "不能同时指定 --input 和 --builtin-model。请二选一。"}]}
+        if not sweep_input:
+            return {"ok": False, "errors": [{"code": "MISSING_INPUT",
+                "message": "Either --input or --builtin-model is required."}]}
+        rp = _resolve_sweep_reference(args)
+        if not rp["ok"]:
+            return rp
         return run_point_sweep(
-            input_path=args.input,
+            input_path=sweep_input,
             work_dir=args.work_dir,
             distances=getattr(args, "distances", None),
             start=getattr(args, "start", None),
             stop=getattr(args, "stop", None),
             step=getattr(args, "step", None),
             axis=getattr(args, "axis", "z"),
-            reference_position=getattr(args, "reference_position", (0, 0, 0)),
+            reference_position=rp["reference_position"],
             direction=getattr(args, "direction", 1),
             source_energy=args.source_energy,
             source_particle=getattr(args, "source_particle", None),
@@ -317,11 +383,21 @@ def run_command(args: argparse.Namespace) -> dict[str, Any]:
         )
 
     if args.command == "run-disk-sweep":
+        sweep_input = _resolve_input(args)
+        if sweep_input == "__INPUT_CONFLICT__":
+            return {"ok": False, "errors": [{"code": "INPUT_CONFLICT",
+                "message": "不能同时指定 --input 和 --builtin-model。请二选一。"}]}
+        if not sweep_input:
+            return {"ok": False, "errors": [{"code": "MISSING_INPUT",
+                "message": "Either --input or --builtin-model is required."}]}
+        rp = _resolve_sweep_reference(args)
+        if not rp["ok"]:
+            return rp
         return run_disk_sweep(
-            input_path=args.input, work_dir=args.work_dir,
+            input_path=sweep_input, work_dir=args.work_dir,
             distances=getattr(args, "distances", None),
             start=getattr(args, "start", None), stop=getattr(args, "stop", None), step=getattr(args, "step", None),
-            axis=getattr(args, "axis", "z"), reference_position=getattr(args, "reference_position", (0, 0, 0)),
+            axis=getattr(args, "axis", "z"), reference_position=rp["reference_position"],
             direction=getattr(args, "direction", 1),
             source_energy=args.source_energy, source_radius=args.source_radius,
             source_particle=getattr(args, "source_particle", None),
@@ -335,11 +411,21 @@ def run_command(args: argparse.Namespace) -> dict[str, Any]:
         )
 
     if args.command == "prepare-disk-sweep":
+        sweep_input = _resolve_input(args)
+        if sweep_input == "__INPUT_CONFLICT__":
+            return {"ok": False, "errors": [{"code": "INPUT_CONFLICT",
+                "message": "不能同时指定 --input 和 --builtin-model。请二选一。"}]}
+        if not sweep_input:
+            return {"ok": False, "errors": [{"code": "MISSING_INPUT",
+                "message": "Either --input or --builtin-model is required."}]}
+        rp = _resolve_sweep_reference(args)
+        if not rp["ok"]:
+            return rp
         return prepare_disk_sweep(
-            input_path=args.input, work_dir=args.work_dir,
+            input_path=sweep_input, work_dir=args.work_dir,
             distances=getattr(args, "distances", None),
             start=getattr(args, "start", None), stop=getattr(args, "stop", None), step=getattr(args, "step", None),
-            axis=getattr(args, "axis", "z"), reference_position=getattr(args, "reference_position", (0, 0, 0)),
+            axis=getattr(args, "axis", "z"), reference_position=rp["reference_position"],
             direction=getattr(args, "direction", 1),
             source_energy=args.source_energy, source_radius=args.source_radius,
             source_particle=getattr(args, "source_particle", None),
@@ -348,15 +434,25 @@ def run_command(args: argparse.Namespace) -> dict[str, Any]:
         )
 
     if args.command == "prepare-point-sweep":
+        sweep_input = _resolve_input(args)
+        if sweep_input == "__INPUT_CONFLICT__":
+            return {"ok": False, "errors": [{"code": "INPUT_CONFLICT",
+                "message": "不能同时指定 --input 和 --builtin-model。请二选一。"}]}
+        if not sweep_input:
+            return {"ok": False, "errors": [{"code": "MISSING_INPUT",
+                "message": "Either --input or --builtin-model is required."}]}
+        rp = _resolve_sweep_reference(args)
+        if not rp["ok"]:
+            return rp
         return prepare_point_sweep(
-            input_path=args.input,
+            input_path=sweep_input,
             work_dir=args.work_dir,
             distances=getattr(args, "distances", None),
             start=getattr(args, "start", None),
             stop=getattr(args, "stop", None),
             step=getattr(args, "step", None),
             axis=getattr(args, "axis", "z"),
-            reference_position=getattr(args, "reference_position", (0, 0, 0)),
+            reference_position=rp["reference_position"],
             direction=getattr(args, "direction", 1),
             source_energy=args.source_energy,
             source_particle=getattr(args, "source_particle", None),
@@ -536,6 +632,18 @@ def build_parser() -> argparse.ArgumentParser:
         subparser.add_argument("--dry-run", action="store_true", dest="dry_run", default=True)
         subparser.add_argument("--execute", action="store_false", dest="dry_run")
 
+    plan_req_parser = subparsers.add_parser("plan-request")
+    plan_req_parser.add_argument("--text", default=None, dest="text")
+    plan_req_parser.add_argument("--text-file", default=None, dest="text_file")
+    plan_req_parser.add_argument("--np", type=int, default=None, dest="np")
+    plan_req_parser.add_argument("--mpi-launcher", default=None, dest="mpi_launcher")
+    plan_req_parser.add_argument("--mcnp-exe", default=None, dest="mcnp_exe")
+
+    runtime_parser = subparsers.add_parser("runtime-check")
+    runtime_parser.add_argument("--np", type=int, default=None, dest="np")
+    runtime_parser.add_argument("--mpi-launcher", default=None, dest="mpi_launcher")
+    runtime_parser.add_argument("--mcnp-exe", default=None, dest="mcnp_exe")
+
     models_parser = subparsers.add_parser("models")
     models_parser.add_argument("models_action", choices=["list", "inspect"])
     models_parser.add_argument("model_id", nargs="?", default=None)
@@ -596,14 +704,16 @@ def build_parser() -> argparse.ArgumentParser:
     prep_parser.add_argument("--mcnp-version", default=None, dest="mcnp_version")
 
     rdsw_parser = subparsers.add_parser("run-disk-sweep")
-    rdsw_parser.add_argument("--input", required=True, dest="input")
+    rdsw_parser.add_argument("--input", default=None, dest="input")
+    rdsw_parser.add_argument("--builtin-model", default=None, dest="builtin_model")
     rdsw_parser.add_argument("--work-dir", required=True, dest="work_dir")
     rdsw_parser.add_argument("--distances", nargs="*", type=float, default=None, dest="distances")
     rdsw_parser.add_argument("--start", type=float, default=None, dest="start")
     rdsw_parser.add_argument("--stop", type=float, default=None, dest="stop")
     rdsw_parser.add_argument("--step", type=float, default=None, dest="step")
     rdsw_parser.add_argument("--axis", default="z", dest="axis")
-    rdsw_parser.add_argument("--reference-position", nargs=3, type=float, default=(0, 0, 0), dest="reference_position")
+    rdsw_parser.add_argument("--reference-position", nargs=3, type=float, default=None, dest="reference_position")
+    rdsw_parser.add_argument("--reference-point", default=None, dest="reference_point")
     rdsw_parser.add_argument("--direction", type=float, default=1, dest="direction")
     rdsw_parser.add_argument("--source-energy", type=float, required=True, dest="source_energy")
     rdsw_parser.add_argument("--source-radius", type=float, required=True, dest="source_radius")
@@ -621,14 +731,16 @@ def build_parser() -> argparse.ArgumentParser:
     rdsw_parser.add_argument("--confirm-mpi", action="store_true", default=False)
 
     dsw_parser = subparsers.add_parser("prepare-disk-sweep")
-    dsw_parser.add_argument("--input", required=True, dest="input")
+    dsw_parser.add_argument("--input", default=None, dest="input")
+    dsw_parser.add_argument("--builtin-model", default=None, dest="builtin_model")
     dsw_parser.add_argument("--work-dir", required=True, dest="work_dir")
     dsw_parser.add_argument("--distances", nargs="*", type=float, default=None, dest="distances")
     dsw_parser.add_argument("--start", type=float, default=None, dest="start")
     dsw_parser.add_argument("--stop", type=float, default=None, dest="stop")
     dsw_parser.add_argument("--step", type=float, default=None, dest="step")
     dsw_parser.add_argument("--axis", default="z", dest="axis")
-    dsw_parser.add_argument("--reference-position", nargs=3, type=float, default=(0, 0, 0), dest="reference_position")
+    dsw_parser.add_argument("--reference-position", nargs=3, type=float, default=None, dest="reference_position")
+    dsw_parser.add_argument("--reference-point", default=None, dest="reference_point")
     dsw_parser.add_argument("--direction", type=float, default=1, dest="direction")
     dsw_parser.add_argument("--source-energy", type=float, required=True, dest="source_energy")
     dsw_parser.add_argument("--source-radius", type=float, required=True, dest="source_radius")
@@ -639,14 +751,16 @@ def build_parser() -> argparse.ArgumentParser:
     dsw_parser.add_argument("--postprocess", default="none", dest="postprocess")
 
     sweep_parser = subparsers.add_parser("prepare-point-sweep")
-    sweep_parser.add_argument("--input", required=True, dest="input")
+    sweep_parser.add_argument("--input", default=None, dest="input")
+    sweep_parser.add_argument("--builtin-model", default=None, dest="builtin_model")
     sweep_parser.add_argument("--work-dir", required=True, dest="work_dir")
     sweep_parser.add_argument("--distances", nargs="*", type=float, default=None, dest="distances")
     sweep_parser.add_argument("--start", type=float, default=None, dest="start")
     sweep_parser.add_argument("--stop", type=float, default=None, dest="stop")
     sweep_parser.add_argument("--step", type=float, default=None, dest="step")
     sweep_parser.add_argument("--axis", default="z", dest="axis")
-    sweep_parser.add_argument("--reference-position", nargs=3, type=float, default=(0, 0, 0), dest="reference_position")
+    sweep_parser.add_argument("--reference-position", nargs=3, type=float, default=None, dest="reference_position")
+    sweep_parser.add_argument("--reference-point", default=None, dest="reference_point")
     sweep_parser.add_argument("--direction", type=float, default=1, dest="direction")
     sweep_parser.add_argument("--source-energy", type=float, required=True, dest="source_energy")
     sweep_parser.add_argument("--source-particle", default=None, dest="source_particle")
@@ -654,14 +768,16 @@ def build_parser() -> argparse.ArgumentParser:
     sweep_parser.add_argument("--postprocess", default="none", dest="postprocess")
 
     runs_parser = subparsers.add_parser("run-point-sweep")
-    runs_parser.add_argument("--input", required=True, dest="input")
+    runs_parser.add_argument("--input", default=None, dest="input")
+    runs_parser.add_argument("--builtin-model", default=None, dest="builtin_model")
     runs_parser.add_argument("--work-dir", required=True, dest="work_dir")
     runs_parser.add_argument("--distances", nargs="*", type=float, default=None, dest="distances")
     runs_parser.add_argument("--start", type=float, default=None, dest="start")
     runs_parser.add_argument("--stop", type=float, default=None, dest="stop")
     runs_parser.add_argument("--step", type=float, default=None, dest="step")
     runs_parser.add_argument("--axis", default="z", dest="axis")
-    runs_parser.add_argument("--reference-position", nargs=3, type=float, default=(0, 0, 0), dest="reference_position")
+    runs_parser.add_argument("--reference-position", nargs=3, type=float, default=None, dest="reference_position")
+    runs_parser.add_argument("--reference-point", default=None, dest="reference_point")
     runs_parser.add_argument("--direction", type=float, default=1, dest="direction")
     runs_parser.add_argument("--source-energy", type=float, required=True, dest="source_energy")
     runs_parser.add_argument("--source-particle", default=None, dest="source_particle")

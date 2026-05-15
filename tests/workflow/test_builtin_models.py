@@ -67,16 +67,22 @@ def test_registry_has_correct_entries():
     assert t2["requires_user_validation"] is True
 
 
-def test_registry_entry_has_no_reference_points():
-    """Registry entry must NOT define reference_points / front_surface derived from geometry."""
+def test_registry_entry_has_reference_points_with_basis():
+    """Registry entries must define reference_points with position, basis, verified."""
     from mcnp_research_skill.models.registry import get_model
 
-    m = get_model("nai_3x3_verified")
-    assert m is not None
-    assert "reference_points" not in m
-    assert "front_surface" not in m
-    assert "detector_front" not in m
-    assert "crystal_front" not in m
+    for mid in ("nai_3x3_verified", "nai_1x1_template", "nai_2x2_template"):
+        m = get_model(mid)
+        assert m is not None, f"{mid} missing"
+        rps = m.get("reference_points", {})
+        assert "nai_crystal_front_surface" in rps, f"{mid} missing crystal front"
+        assert "nai_crystal_center" in rps, f"{mid} missing crystal center"
+        assert "aluminum_shell_front" in rps, f"{mid} missing al shell front"
+        for name, rp in rps.items():
+            assert "position" in rp, f"{mid}/{name} missing position"
+            assert len(rp["position"]) == 3
+            assert "basis" in rp, f"{mid}/{name} missing basis"
+            assert "verified" in rp, f"{mid}/{name} missing verified"
 
 
 def test_list_models_includes_nai_3x3_verified():
@@ -345,17 +351,20 @@ def test_nonexistent_reference_point_with_profile_raises():
         resolve_reference_point("bogus_point", reference_points=profile_rps)
 
 
-def test_no_front_surface_deduced_from_model_name():
-    """Model display name "3x3 NaI" must not imply any reference point."""
+def test_reference_points_have_explicit_basis_not_name_inference():
+    """Every reference point must have an explicit basis, not inferred from model name."""
     from mcnp_research_skill.models.registry import get_model
 
-    m = get_model("nai_3x3_verified")
-    assert m is not None
-    # The display name contains "3x3" and "NaI" — but that does NOT
-    # automatically create a front_surface reference point.
-    for key in m:
-        if "front" in str(key).lower() or "surface" in str(key).lower():
-            pytest.fail(f"Model entry implicitly defines a surface: {key}={m[key]!r}")
+    for mid in ("nai_3x3_verified", "nai_1x1_template", "nai_2x2_template"):
+        m = get_model(mid)
+        rps = m.get("reference_points", {})
+        for name, rp in rps.items():
+            basis = rp.get("basis", "")
+            assert len(basis) > 0, f"{mid}/{name}: basis must not be empty"
+            # basis must not be the model id or display name
+            assert basis != mid, f"{mid}/{name}: basis must not be model id"
+            assert "derived_from" in basis or "template_" in basis or "unknown" in basis, (
+                f"{mid}/{name}: basis ({basis}) must indicate source" )
 
 
 # ==================================================================

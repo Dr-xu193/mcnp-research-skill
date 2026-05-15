@@ -503,3 +503,123 @@ python -m mcnp_research_skill.cli prepare-workflow `
 - **Safety gates unchanged**: `--execute --confirm-mpi --mpi-config` still required for real execution.
 - **No physics changes**: repair never touches geometry, material, source, or tally definitions.
 - **No automatic complex repairs**: continuation splitting is only attempted on data cards, not cell geometry lines.
+
+---
+
+## Natural-Language Request Planner
+
+A deterministic rule-based parser that translates Chinese / English
+natural-language workflow requests into structured plans.  **Not an
+LLM** — pure regex and keyword matching.
+
+### CLI: plan-request
+
+```powershell
+# Text input
+python -m mcnp_research_skill.cli plan-request --text "用2英寸NaI，距离铝壳表面10到20厘米每步5厘米，Cs-137，nps 1e6"
+
+# File input
+python -m mcnp_research_skill.cli plan-request --text-file request.txt
+
+# Override runtime check parameters
+python -m mcnp_research_skill.cli plan-request --text "..." --np 8 --mpi-launcher mpiexec --mcnp-exe C:\MCNP\mcnp5mpi.exe
+```
+
+### Output
+
+The planner outputs a structured JSON with:
+
+| Field | Purpose |
+|-------|---------|
+| `human_summary` | User-facing Chinese explanation of what was understood |
+| `confirmation_prompt` | Asks user to confirm before execution |
+| `workflow_command` | Recommended CLI command (e.g., `run-point-sweep`) |
+| `model` / `model_verified` | Detected model and verification status |
+| `canonical_reference_point` | Resolved canonical reference point name |
+| `nps` / `source_energy` / `postprocess` | Extracted parameters |
+| `cli_preview` | Suggested CLI command lines |
+| `runtime_preflight` | Environment check result |
+| `can_execute_now` | Whether all pieces are ready for execution |
+| `missing_required` | What's still missing |
+| `warnings` / `errors` | Structured issues |
+
+### Supported model aliases
+
+| Alias | Resolves to |
+|-------|-----------|
+| `3 inch` / `3英寸` / `3x3 NaI` / `三英寸` | `nai_3x3_verified` |
+| `2 inch` / `2英寸` / `2x2 NaI` / `二英寸` | `nai_2x2_template` |
+| `1 inch` / `1英寸` / `1x1 NaI` / `一英寸` | `nai_1x1_template` |
+
+### Supported reference point aliases
+
+Three canonical reference points: `nai_crystal_front_surface`, `nai_crystal_center`, `aluminum_shell_front`.  Each has Chinese aliases (晶体前表面, 晶体中心, 铝壳表面).  Ambiguous aliases (晶体表面) return `AMBIGUOUS_REFERENCE_POINT`.
+
+### How NPS / "源强度" is handled
+
+- `源强度 1e7` or `10的7次方` → interpreted as **NPS (histories)**, **not** Bq activity
+- Warning `SOURCE_STRENGTH_INTERPRETED_AS_NPS` is emitted
+- `活度` / `activity` / `Bq` → `ACTIVITY_NORMALIZATION_UNSUPPORTED` error; activity normalization is not yet supported
+
+### Boundaries
+
+- Planner is **deterministic**, no external LLM/API calls
+- Planner **only generates plans**, never executes MCNP
+- `execute_requested=true` still requires user confirmation + safety gates
+- Sweep source strategy defaults to `point_sdef_pos` if not specified
+
+---
+
+## Runtime Preflight / MPI Command Builder
+
+Checks the local environment for MCNP/MPI readiness without executing anything.
+
+### CLI: runtime-check
+
+```powershell
+python -m mcnp_research_skill.cli runtime-check
+python -m mcnp_research_skill.cli runtime-check --np 8
+python -m mcnp_research_skill.cli runtime-check --mpi-launcher mpiexec
+python -m mcnp_research_skill.cli runtime-check --mcnp-exe C:\MCNP5\mcnp5mpi.exe
+```
+
+### What is checked
+
+| Check | Detail |
+|-------|--------|
+| Logical processors | `os.cpu_count()` |
+| Recommended `-np` | Default: `logical_processors + 1` (auto.py-compatible policy, **not** MPI standard) |
+| MPI launcher | Searches PATH for `mpirun` / `mpiexec` |
+| MCNP executable | Searches PATH for `mcnp5mpi` / `mcnp5` / `mcnp6` / `mcnp` |
+| Command preview | `mpirun -np <n> mcnp5mpi` when both found |
+
+### Boundaries
+
+- `recommended_np = logical_processors + 1` is a heuristic, not a performance guarantee
+- Users can override with `--np`, `--mpi-launcher`, `--mcnp-exe`
+- Does **not** provide MCNP downloads or license workarounds
+- If MCNP is not found, user is told to install a licensed copy and configure PATH
+
+---
+
+## Sweep CLI: --builtin-model + --reference-point
+
+All four sweep commands now support both shortcuts:
+
+```powershell
+# --builtin-model instead of --input
+python -m mcnp_research_skill.cli prepare-point-sweep `
+  --builtin-model nai_2x2_template --work-dir runs/sweep `
+  --start 10 --stop 20 --step 5 --source-energy 0.662 --nps 1e6
+
+# --reference-point instead of --reference-position
+python -m mcnp_research_skill.cli run-point-sweep `
+  --builtin-model nai_3x3_verified --work-dir runs/sweep `
+  --start 10 --stop 20 --step 5 --source-energy 0.662 --nps 1e6 `
+  --reference-point nai_crystal_front_surface
+```
+
+Rules:
+- `--input` and `--builtin-model` are mutually exclusive → `INPUT_CONFLICT`
+- `--reference-point` and `--reference-position` are mutually exclusive → `REFERENCE_POSITION_CONFLICT`
+- `--reference-point` requires `--builtin-model` for model-specific lookup
