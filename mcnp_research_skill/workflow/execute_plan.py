@@ -212,6 +212,41 @@ def _dispatch_workflow(
         return {"ok": False, "errors": [{"code": "MODEL_NOT_FOUND", "message": str(e)}]}
 
     wd = work_dir or f"runs/{model}_{wf_cmd}"
+    intent = plan.get("intent", "")
+
+    # ---- GEB fit commands ----
+    if intent in ("fit_geb", "fit_geb_and_patch", "patch_geb", "fit_geb_patch_and_run_sweep"):
+        spe_files = plan.get("spe_files", [])
+        if not spe_files:
+            return {"ok": False, "errors": [{"code": "MISSING_SPE_FILES",
+                "message": "缺少 SPE 文件。请提供用于拟合 GEB 的能谱文件。"}]}
+        # Run GEB fit
+        from ..geb.spe import fit_geb_from_spe_files
+        geb = fit_geb_from_spe_files(spe_files)
+        if not geb.get("geb_fit_ok"):
+            return geb  # returns fit result with errors
+
+        # Handle patch
+        if intent in ("fit_geb_and_patch", "fit_geb_patch_and_run_sweep", "patch_geb"):
+            from pathlib import Path
+            from ..mcnp_input.patching import patch_geb as _patch_geb
+            a, b, c = geb["fitted_params"]["A"], geb["fitted_params"]["B"], geb["fitted_params"]["C"]
+            deck_text = Path(input_path).read_text(encoding="utf-8")
+            patch_r = _patch_geb(deck_text, a, b, c)
+            geb["patch_result"] = patch_r
+            if patch_r["ok"]:
+                patched = Path(wd) / f"{model}_geb_patched.txt"
+                patched.parent.mkdir(parents=True, exist_ok=True)
+                patched.write_text(patch_r["text"], encoding="utf-8")
+                geb["patched_deck_path"] = str(patched)
+            else:
+                return geb  # patch failed (e.g., no F8)
+        if intent == "fit_geb":
+            return geb
+
+        # If sweep after GEB, continue to sweep dispatch
+        if intent == "fit_geb_patch_and_run_sweep":
+            input_path = geb.get("patched_deck_path", input_path)
 
     # ---- sweep commands ----
     if wf_cmd in ("run-point-sweep", "prepare-point-sweep", "run-disk-sweep", "prepare-disk-sweep"):

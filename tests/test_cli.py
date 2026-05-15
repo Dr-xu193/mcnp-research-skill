@@ -178,6 +178,7 @@ def test_top_level_cli_fit_geb_from_spe_outputs_json(tmp_path: Path) -> None:
             sys.executable,
             "-m",
             "mcnp_research_skill.cli",
+            "--json",
             "fit-geb-from-spe",
             "--spe",
             str(spe_path),

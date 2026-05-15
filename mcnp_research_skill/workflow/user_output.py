@@ -247,3 +247,44 @@ def render_non_f8_response(tally_kind: str, postprocess_requested: str) -> str:
 
 def render_non_f8_run_only(tally_kind: str) -> str:
     return _s(26816,27979,21040) + " " + tally_kind + " " + _s(31561,38750,70,56,116,97,108,108,121,12290,24403,21069,23558,25353,114,117,110,45,111,110,108,121,47,112,114,101,112,97,114,101,45,111,110,108,121,32487,32493,65307,19981,20250,36827,34892,67,83,86,47,112,108,111,116,21518,22788,29702,12290)
+
+
+def render_geb_fit_response(result: dict) -> str:
+    lines = []
+    used = len(result.get("used_files", []))
+    accept = result.get("accepted_count", 0)
+    reject = result.get("rejected_count", 0)
+    params = result.get("fitted_params") or {}
+    geb_ok = result.get("geb_fit_ok", False)
+
+    if geb_ok:
+        lines.append(f"From {used} SPE files, extracted peak energies and FWHM.")
+        lines.append(f"Accepted: {accept} peaks, Rejected: {reject} peaks.")
+        lines.append(f"Fitted GEB parameters: A={params.get('A', 0):.6f}, B={params.get('B', 0):.6f}, C={params.get('C', 0):.6f}")
+        lines.append("Review fit quality before writing to MCNP input deck.")
+    else:
+        lines.append(f"Insufficient valid peaks: {accept} accepted, need at least 3.")
+        lines.append("Provide more SPE files or manually specify peak energies/ROI.")
+    return "\n".join(lines)
+
+
+def render_geb_patch_response(result: dict) -> str:
+    lines = []
+    pr = result.get("patch_result", {})
+    if pr.get("ok"):
+        pt = pr.get("patches", [{}])[0] if pr.get("patches") else {}
+        lines.append(f"FT8 GEB updated: {pt.get('after', '')}")
+        outp = result.get("output_path", result.get("patched_deck_path", "output deck"))
+        lines.append(f"Original input not overwritten; patched to: {outp}")
+    else:
+        errs = pr.get("errors", result.get("errors", []))
+        for e in errs:
+            code = e.get("code", "") if isinstance(e, dict) else ""
+            if code == "GEB_REQUIRES_F8":
+                lines.append("Current deck has no F8 tally; cannot write FT8 GEB.")
+                lines.append("GEB only applies to F8 pulse-height tally.")
+                lines.append("Non-F8 decks can still run-only, but GEB energy broadening is not applicable.")
+            else:
+                msg = e.get("message", str(e)) if isinstance(e, dict) else str(e)
+                lines.append(f"GEB patch blocked: {msg}")
+    return "\n".join(lines)
