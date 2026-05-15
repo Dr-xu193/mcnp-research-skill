@@ -279,10 +279,41 @@ def test_execute_plan_mock_failure_with_stderr_mpi():
     with mock.patch(
         "mcnp_research_skill.mcnp_run.runtime._find_mpi_launcher",
         return_value={"found": False, "command": None, "path": None, "source": None},
+    ), mock.patch(
+        "mcnp_research_skill.mcnp_run.runtime._find_mcnp_exe",
+        return_value={"found": True, "command": "mcnp5mpi", "path": "/opt/mcnp/mcnp5mpi", "source": "PATH"},
     ):
         result = execute_plan(plan, execute=True, confirm_user=True)
         assert not result["ok"]
         assert any(e["code"] == "MPI_LAUNCHER_NOT_FOUND" for e in result["errors"])
+
+
+def test_execute_plan_both_mcnp_and_mpi_missing():
+    """When BOTH MCNP and MPI are missing, BOTH error codes must appear."""
+    from mcnp_research_skill.workflow.execute_plan import execute_plan
+
+    plan = {
+        "ok": True, "status": "ready_for_review",
+        "workflow_command": "run-point-sweep",
+        "model": "nai_2x2_template", "source_strategy": "point_sdef_pos",
+        "source_energy": 0.662, "nps": 1_000_000, "postprocess": "none",
+        "distance": {"distances": [10.0]},
+        "reference_position": [0.0, 0.0, -0.1],
+        "execute_requested": True, "missing_required": [], "warnings": [], "errors": [],
+    }
+
+    with mock.patch(
+        "mcnp_research_skill.mcnp_run.runtime._find_mpi_launcher",
+        return_value={"found": False, "command": None, "path": None, "source": None},
+    ), mock.patch(
+        "mcnp_research_skill.mcnp_run.runtime._find_mcnp_exe",
+        return_value={"found": False, "command": None, "path": None, "source": None},
+    ):
+        result = execute_plan(plan, execute=True, confirm_user=True)
+        assert not result["ok"]
+        codes = [e["code"] for e in result.get("errors", []) if isinstance(e, dict)]
+        assert "MPI_LAUNCHER_NOT_FOUND" in codes
+        assert "MCNP_NOT_FOUND" in codes
 
 
 def test_execute_plan_mock_disk_tr1_source_error():
