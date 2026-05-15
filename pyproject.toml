@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mcnp-research-skill"
-version = "0.2.0"
-description = "Refactored MCNP research utilities migrated from legacy auto.py."
+version = "0.3.0"
+description = "MCNP5 research toolkit with natural-language workflow planner, MCNP5 diagnostics, built-in detector models, and 712 tests."
 requires-python = ">=3.10"
 dependencies = [
     "numpy>=1.23",
