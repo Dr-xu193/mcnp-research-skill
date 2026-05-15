@@ -17,6 +17,12 @@
 | `run-point-sweep` | Sweep → optionally run MCNP → optionally F8 postprocess | **Yes (if --execute)** |
 | `models list` | List registered built-in verified decks | No |
 | `models inspect` | Inspect a built-in model (alias for inspect-deck) | No |
+| `plan-request` | Parse natural-language request into structured plan | No |
+| `execute-plan` | Execute a plan (default dry-run, requires confirm) | **Yes (if --execute)** |
+| `runtime-check` | Check local MPI/MCNP readiness | No |
+
+All user-facing commands default to **Chinese text output**.  Use `--json`
+for structured JSON (debugging/automation).
 
 ## Current Boundaries
 
