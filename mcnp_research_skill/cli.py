@@ -622,6 +622,8 @@ def run_command(args: argparse.Namespace) -> dict[str, Any]:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m mcnp_research_skill.cli")
+    parser.add_argument("--json", action="store_true", default=False, dest="json_output",
+                        help="Output structured JSON instead of user-facing Chinese text")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     init_parser = subparsers.add_parser("init")
@@ -925,9 +927,49 @@ def main(argv: list[str] | None = None) -> dict[str, Any]:
 
 
 def entrypoint(argv: list[str] | None = None) -> int:
-    """Console-script entry point that emits ASCII-safe JSON."""
-    payload = main(argv)
-    sys.stdout.write(json.dumps(payload, ensure_ascii=True, indent=2))
+    """Console-script entry point — defaults to Chinese user-facing output."""
+    parser = build_parser()
+    # Parse known args to detect --json before full parse
+    if argv is None:
+        argv = sys.argv[1:]
+    args = parser.parse_args(argv)
+    try:
+        payload = run_command(args)
+    except Exception as exc:
+        payload = {"ok": False, "warnings": [], "errors": [str(exc)]}
+
+    use_json = getattr(args, "json_output", False)
+    if use_json:
+        sys.stdout.write(json.dumps(payload, ensure_ascii=True, indent=2))
+        sys.stdout.write("\n")
+        return 0 if payload.get("ok") else 1
+
+    # User-facing Chinese output
+    from .workflow.user_output import (
+        render_plan_response,
+        render_execute_plan_response,
+        render_runtime_check_response,
+        render_diagnostics_response,
+        render_repair_response,
+    )
+    cmd = args.command
+    if cmd == "plan-request":
+        text = render_plan_response(payload)
+    elif cmd == "execute-plan":
+        text = render_execute_plan_response(payload)
+    elif cmd == "runtime-check":
+        text = render_runtime_check_response(payload)
+    elif cmd == "diagnose-deck":
+        text = render_diagnostics_response(payload)
+    elif cmd == "repair-deck":
+        text = render_repair_response(payload)
+    else:
+        # Commands without user-facing renderer → JSON fallback
+        sys.stdout.write(json.dumps(payload, ensure_ascii=True, indent=2))
+        sys.stdout.write("\n")
+        return 0 if payload.get("ok") else 1
+
+    sys.stdout.write(text)
     sys.stdout.write("\n")
     return 0 if payload.get("ok") else 1
 

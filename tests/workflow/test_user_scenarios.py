@@ -24,14 +24,14 @@ def _run(*args):
 
 
 def _plan(text, **kw):
-    args = ["plan-request", "--text", text]
+    args = ["--json", "plan-request", "--text", text]
     for k, v in kw.items():
         args.extend([f"--{k.replace('_', '-')}", str(v)])
     return _run(*args)
 
 
 def _exec(plan_file, **kw):
-    args = ["execute-plan", "--plan-file", plan_file]
+    args = ["--json", "execute-plan", "--plan-file", plan_file]
     for k, v in kw.items():
         f = f"--{k.replace('_', '-')}"
         if v is True:
@@ -223,7 +223,7 @@ def test_s9_diagnose_deck(tmp_path):
     p = json.loads(r.stdout)
     assert p["intent"] == "diagnose_deck"
 
-    r2 = _run("diagnose-deck", "--input", str(tmp_path / "bad.txt"), "--mcnp-version", "mcnp5_rsicc_1_14")
+    r2 = _run("--json", "diagnose-deck", "--input", str(tmp_path / "bad.txt"), "--mcnp-version", "mcnp5_rsicc_1_14")
     p2 = json.loads(r2.stdout)
     assert any(i["code"] in ("TAB_CHARACTER", "LINE_TOO_LONG") for i in p2["issues"])
     for iss in p2["issues"]:

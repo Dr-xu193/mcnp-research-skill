@@ -587,7 +587,7 @@ def test_cli_diagnose_deck_json(tmp_path):
         "test\n1 0 -1 imp:p=1\n1 so 100\nmode p\nsdef\tpos=0 0 0\nnps 100\n",
         encoding="utf-8",
     )
-    r = _run("diagnose-deck", "--input", str(tmp_path / "A.txt"),
+    r = _run("--json", "diagnose-deck", "--input", str(tmp_path / "A.txt"),
              "--mcnp-version", "mcnp5_rsicc_1_14")
     # TAB_CHARACTER is error (not blocking), so ok=true
     p = json.loads(r.stdout)
@@ -601,7 +601,7 @@ def test_cli_diagnose_deck_clean(tmp_path):
         "test\n1 0 -1 imp:p=1\n1 so 100\n\nmode p\nsdef pos=0 0 0\nnps 100\n",
         encoding="utf-8",
     )
-    r = _run("diagnose-deck", "--input", str(tmp_path / "A.txt"))
+    r = _run("--json", "diagnose-deck", "--input", str(tmp_path / "A.txt"))
     assert r.returncode == 0
     p = json.loads(r.stdout)
     assert p["ok"] is True
@@ -618,7 +618,7 @@ def test_cli_repair_deck(tmp_path):
         "test\n1 0 -1 imp:p=1\n1 so 100\nmode p\nsdef\tpos=0 0 0\nnps 100\n",
         encoding="utf-8",
     )
-    r = _run("repair-deck", "--input", str(tmp_path / "A.txt"),
+    r = _run("--json", "repair-deck", "--input", str(tmp_path / "A.txt"),
              "--output", str(tmp_path / "repaired.txt"))
     assert r.returncode == 0
     p = json.loads(r.stdout)

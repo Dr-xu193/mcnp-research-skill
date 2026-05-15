@@ -1064,14 +1064,14 @@ def test_cli_prepare_2x2_disk_tr1(tmp_path):
 # --- CLI: diagnose-deck on templates ---
 
 def test_cli_diagnose_1x1_ok():
-    r = _run("diagnose-deck", "--builtin-model", "nai_1x1_template")
+    r = _run("--json", "diagnose-deck", "--builtin-model", "nai_1x1_template")
     assert r.returncode == 0
     p = json.loads(r.stdout)
     assert p["ok"]
 
 
 def test_cli_diagnose_2x2_ok():
-    r = _run("diagnose-deck", "--builtin-model", "nai_2x2_template")
+    r = _run("--json", "diagnose-deck", "--builtin-model", "nai_2x2_template")
     assert r.returncode == 0
     p = json.loads(r.stdout)
     assert p["ok"]

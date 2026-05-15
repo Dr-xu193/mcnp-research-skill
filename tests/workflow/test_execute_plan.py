@@ -275,7 +275,7 @@ def test_diagnose_plan_executes():
 # ==================================================================
 
 def test_cli_plan_request_with_output(tmp_path):
-    r = _run("plan-request", "--text",
+    r = _run("--json", "plan-request", "--text",
              "2 inch NaI, distance 10 to 20 cm step 5 from aluminum shell, Cs-137, nps 1e6",
              "--output", str(tmp_path / "plan.json"))
     assert r.returncode == 0
@@ -287,7 +287,7 @@ def test_cli_execute_plan_dry_run(tmp_path):
     _run("plan-request", "--text",
          "2 inch NaI, distance 10 to 20 cm step 5 from aluminum shell, Cs-137, nps 1e6",
          "--output", str(tmp_path / "plan.json"))
-    r = _run("execute-plan", "--plan-file", str(tmp_path / "plan.json"))
+    r = _run("--json", "execute-plan", "--plan-file", str(tmp_path / "plan.json"))
     assert r.returncode == 0
     p = json.loads(r.stdout)
     assert p["ok"]
@@ -295,7 +295,7 @@ def test_cli_execute_plan_dry_run(tmp_path):
 
 
 def test_cli_execute_plan_missing_file():
-    r = _run("execute-plan", "--plan-file", "/tmp/nonexistent_plan.json")
+    r = _run("--json", "execute-plan", "--plan-file", "/tmp/nonexistent_plan.json")
     assert r.returncode != 0
     p = json.loads(r.stdout)
     assert any(e["code"] == "PLAN_FILE_NOT_FOUND" for e in p.get("errors", []) if isinstance(e, dict))
@@ -305,7 +305,7 @@ def test_cli_execute_without_confirm(tmp_path):
     _run("plan-request", "--text",
          "2 inch NaI, distance 10 to 20 cm step 5 from aluminum shell, Cs-137, nps 1e6",
          "--output", str(tmp_path / "plan.json"))
-    r = _run("execute-plan", "--plan-file", str(tmp_path / "plan.json"), "--execute")
+    r = _run("--json", "execute-plan", "--plan-file", str(tmp_path / "plan.json"), "--execute")
     assert r.returncode != 0
     p = json.loads(r.stdout)
     assert any(e["code"] == "USER_CONFIRMATION_REQUIRED" for e in p.get("errors", []) if isinstance(e, dict))
@@ -313,7 +313,7 @@ def test_cli_execute_without_confirm(tmp_path):
 
 def test_cli_execute_plan_invalid_json(tmp_path):
     (tmp_path / "bad.json").write_text("not json", encoding="utf-8")
-    r = _run("execute-plan", "--plan-file", str(tmp_path / "bad.json"))
+    r = _run("--json", "execute-plan", "--plan-file", str(tmp_path / "bad.json"))
     assert r.returncode != 0
     p = json.loads(r.stdout)
     assert any(e["code"] == "PLAN_FILE_INVALID" for e in p.get("errors", []) if isinstance(e, dict))

@@ -405,7 +405,7 @@ def test_unknown_reference_point_sweep(tmp_path):
 
 
 def test_model_not_detected():
-    r = _run("plan-request", "--text", "run a disk source simulation")
+    r = _run("--json", "plan-request", "--text", "run a disk source simulation")
     assert r.returncode != 0
     p = json.loads(r.stdout)
     assert p["status"] == "needs_clarification"
@@ -416,7 +416,7 @@ def test_model_not_detected():
 # ==================================================================
 
 def test_cli_plan_request_json():
-    r = _run("plan-request", "--text",
+    r = _run("--json", "plan-request", "--text",
              "2 inch NaI, distance 10 to 20 cm step 5 from aluminum shell, Cs-137, nps 1e6")
     assert r.returncode == 0
     p = json.loads(r.stdout)
@@ -429,7 +429,7 @@ def test_cli_plan_request_json():
 
 
 def test_cli_runtime_check():
-    r = _run("runtime-check")
+    r = _run("--json", "runtime-check")
     assert r.returncode == 0
     p = json.loads(r.stdout)
     assert p["ok"]
