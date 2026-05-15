@@ -299,9 +299,20 @@ def fit_geb_from_spe_files(
     result["fit_result"] = fit_result
     result["warnings"].extend(fit_result.get("warnings", []))
     result["errors"].extend(fit_result.get("errors", []))
-    if fit_result.get("ok"):
+    # Count accepted/rejected peaks
+    result["accepted_count"] = len(result.get("energy_fwhm_pairs", []))
+    result["rejected_count"] = result.get("rejected_count", 0)
+    result["number_of_points"] = result["accepted_count"]
+    if fit_result.get("ok") and result["accepted_count"] >= 3:
         result["ok"] = True
+        result["geb_fit_ok"] = True
         result["fitted_params"] = fit_result["fitted_params"]
     else:
         result["ok"] = False
+        result["geb_fit_ok"] = False
+        if result["accepted_count"] < 3:
+            result["errors"].append({
+                "code": "GEB_FIT_INSUFFICIENT_PEAKS",
+                "message": f"有效峰数量不足: {result['accepted_count']}，至少需要 3 个。",
+            })
     return result

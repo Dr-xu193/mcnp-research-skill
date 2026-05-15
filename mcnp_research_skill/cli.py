@@ -1024,6 +1024,8 @@ def entrypoint(argv: list[str] | None = None) -> int:
         render_runtime_check_response,
         render_diagnostics_response,
         render_repair_response,
+        render_geb_fit_response,
+        render_geb_patch_response,
     )
     cmd = args.command
     if cmd == "plan-request":
@@ -1038,6 +1040,10 @@ def entrypoint(argv: list[str] | None = None) -> int:
         text = render_repair_response(payload)
     elif cmd == "analyze-run-failure":
         text = render_failure_response(payload)
+    elif cmd == "fit-geb-from-spe":
+        text = render_geb_fit_response(payload)
+    elif cmd == "fit-geb-and-patch-deck":
+        text = render_geb_patch_response(payload)
     else:
         # Commands without user-facing renderer → JSON fallback
         sys.stdout.write(json.dumps(payload, ensure_ascii=True, indent=2))
