@@ -271,17 +271,23 @@ def _dispatch_workflow(
     # ---- run-only / batch ----
     if wf_cmd in ("run-workflow", "batch-workflow"):
         from ..workflow.run import run_workflow
-        return run_workflow(
-            input_path=input_path,
-            work_dir=wd,
-            workflow_mode="run-only",
-            source_strategy=source_strategy or "preserve_existing_source",
-            postprocess=postprocess,
-            nps=str(nps) if nps else None,
-            execute=execute,
-            confirm_mpi=execute,
-            mpi_command=mpi_command,
-        )
+        run_kwargs: dict[str, Any] = {
+            "input_path": input_path,
+            "work_dir": wd,
+            "workflow_mode": "run-only",
+            "source_strategy": source_strategy or "preserve_existing_source",
+            "postprocess": postprocess,
+            "nps": str(nps) if nps else None,
+            "execute": execute,
+            "confirm_mpi": execute,
+            "mpi_command": mpi_command,
+        }
+        if source_strategy in ("point_sdef_pos", "disk_tr1") and rp_position and source_energy:
+            run_kwargs["source_position"] = tuple(rp_position)
+            run_kwargs["source_energy"] = source_energy
+            if source_radius:
+                run_kwargs["source_radius"] = source_radius
+        return run_workflow(**run_kwargs)
 
     if wf_cmd == "postprocess-workflow":
         from ..workflow.postprocess import postprocess_workflow

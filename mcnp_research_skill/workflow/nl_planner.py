@@ -159,6 +159,15 @@ def plan_request(
             if nums:
                 distances = [float(n) for n in nums]
 
+    # ---- detect source radius ----
+    source_radius: float | None = None
+    rad_match = re.search(
+        r"(?:半径|radius|source[_ ]radius)\s*[=：:\s]*\s*(\d+(?:\.\d+)?)",
+        text, re.IGNORECASE,
+    )
+    if rad_match:
+        source_radius = float(rad_match.group(1))
+
     # ---- detect source energy ----
     source_energy: float | None = None
     for pat, val in _ENERGY_PATTERNS:
@@ -247,7 +256,7 @@ def plan_request(
     # ==================================================================
 
     intent: str = "unknown"
-    if re.search(r"sweep|扫描|扫|每隔|每步|step", text, re.IGNORECASE) and re.search(r"距离|distance|\d+\s*cm|\d+\s*厘米", text, re.IGNORECASE):
+    if re.search(r"sweep|扫描|扫|每隔|每步|step|prepare.*sweep|sweep.*prepare|prepare.*distance|distance.*prepare", text, re.IGNORECASE) and re.search(r"距离|distance|\d+\s*cm|\d+\s*厘米", text, re.IGNORECASE):
         intent = "run_sweep" if execute_requested else "prepare_sweep"
     elif re.search(r"检查|diagnos|inspect|是否符合", text, re.IGNORECASE):
         intent = "diagnose_deck"
@@ -300,7 +309,7 @@ def plan_request(
         missing.append("distance_range")
     if intent in ("run_sweep", "prepare_sweep") and source_energy is None:
         missing.append("source_energy")
-    if source_strategy == "disk_tr1":
+    if source_strategy == "disk_tr1" and source_radius is None:
         missing.append("source_radius")
 
     # ---- determine workflow command ----
@@ -411,6 +420,7 @@ def plan_request(
         } if (start is not None or distances is not None) else None,
         "nps": nps_val,
         "source_energy": source_energy,
+        "source_radius": source_radius,
         "postprocess": postprocess,
         "execute_requested": execute_requested,
         "can_execute_now": can_execute,
