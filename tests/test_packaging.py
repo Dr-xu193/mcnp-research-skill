@@ -1,7 +1,13 @@
 from __future__ import annotations
 
-import tomllib
+import sys
 from pathlib import Path
+
+if sys.version_info < (3, 11):
+    import pytest
+    pytest.skip("tomllib requires Python 3.11+", allow_module_level=True)
+
+import tomllib
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
