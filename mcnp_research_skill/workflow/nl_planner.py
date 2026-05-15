@@ -79,85 +79,154 @@ def plan_request(
 
     # ---- detect NPS ----
     nps_val: int | None = None
-    nps_match = re.search(
-        r"(?:nps|粒子数|源强度|histories|粒子源强度)\s*[=：:\s]*\s*(\d+(?:\.\d+)?(?:[eE]\d+)?)",
-        text, re.IGNORECASE,
-    )
-    if nps_match:
-        raw = nps_match.group(1)
-        if "e" in raw.lower():
-            parts = raw.lower().split("e")
-            nps_val = int(float(parts[0]) * (10 ** int(parts[1])))
-            if "源强度" in nps_match.group(0):
+
+    # Patterns ordered from most specific to least
+    _SUPERSCRIPT_MAP = str.maketrans("⁰¹²³⁴⁵⁶⁷⁸⁹", "0123456789")
+
+    _NPS_PATTERNS: list[tuple[str, bool]] = [
+        # "NPS=1e7", "nps 1e6", "粒子数 1e7", "histories 1e6"
+        (r"(?:nps|粒子数|源强度|histories|粒子源强度|运行粒子数|运行粒子)\s*[=：:\s]*\s*(\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)", False),
+        # "1e7 histories" / "1e7 nps" / "1e6 particles" (number before keyword)
+        (r"(\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)\s*(?:histories|nps|粒子数|运行粒子)", False),
+        # "10的7次方粒子数" / "10的6次方" / "10 的 7 次方"
+        (r"10\s*的\s*(\d+)\s*次方", True),
+        # "10^7粒子数" / "10^6"
+        (r"10\s*\^\s*(\d+)", True),
+        # "1×10^7" / "1 x 10^7" / "1*10^7"
+        (r"(\d+(?:\.\d+)?)\s*[×x\*]\s*10\s*\^\s*(\d+)", True),
+        # "1×10⁷" / "10⁶" / "10⁷" (Unicode superscript)
+        (r"(\d+(?:\.\d+)?)\s*[×x\*]?\s*10([⁰-⁹]+)", True),
+    ]
+
+    for pattern, is_power in _NPS_PATTERNS:
+        if nps_val is not None:
+            break
+        m = re.search(pattern, text, re.IGNORECASE)
+        if not m:
+            continue
+        if is_power:
+            # Power/exponent patterns
+            if pattern.startswith(r"10\s*的") or pattern.startswith(r"10\s*\^"):
+                exp = int(m.group(1))
+                base = 1
+            elif r"[⁰-⁹]" in pattern:
+                # Unicode superscript: translate to ASCII digits
+                sup = m.group(2) if len(m.groups()) >= 2 else m.group(1)
+                exp = int(sup.translate(_SUPERSCRIPT_MAP))
+                base = int(float(m.group(1))) if len(m.groups()) >= 2 else 1
+            else:
+                # "1×10^7" format
+                base = int(float(m.group(1)))
+                exp = int(m.group(2))
+            nps_val = base * (10 ** exp)
+            if "粒子数" in m.group(0) or "运行粒子" in m.group(0) or "NPS" in m.group(0).upper():
+                pass  # No warning needed for explicit NPS context
+            else:
+                warnings.append({
+                    "code": "SOURCE_STRENGTH_INTERPRETED_AS_NPS",
+                    "message": f"将'{m.group(0)}'解释为 NPS={nps_val}（MCNP histories）。",
+                })
+        else:
+            # Scientific notation or plain number
+            raw = m.group(1)
+            if re.search(r"[eE]", raw):
+                parts = re.split(r"[eE]", raw)
+                nps_val = int(float(parts[0]) * (10 ** int(parts[1])))
+            else:
+                fval = float(raw)
+                if fval >= 1e4:
+                    nps_val = int(fval)
+            if "源强度" in m.group(0):
                 warnings.append({
                     "code": "SOURCE_STRENGTH_INTERPRETED_AS_NPS",
                     "message": f"将'源强度 {raw}'解释为 NPS={nps_val}（MCNP histories），非活度 Bq。",
                 })
-        else:
-            fval = float(raw)
-            if fval >= 1e4:
-                nps_val = int(fval)
-
-    if nps_val is None:
-        pow_match = re.search(r"10\s*的\s*(\d+)\s*次方|10\s*\^\s*(\d+)", text)
-        if pow_match:
-            exp = int(pow_match.group(1) or pow_match.group(2))
-            nps_val = 10 ** exp
-            warnings.append({
-                "code": "SOURCE_STRENGTH_INTERPRETED_AS_NPS",
-                "message": f"将'10的{exp}次方'解释为 NPS={nps_val}（MCNP histories）。",
-            })
-
-    if nps_val is None:
-        hist_match = re.search(
-            r"(?:运行粒子数|粒子数|histories|运行粒子)\s*[=：:\s]*\s*(\d+(?:\.\d+)?(?:[eE]\d+)?)",
-            text, re.IGNORECASE,
-        )
-        if hist_match:
-            raw = hist_match.group(1)
-            if "e" in raw.lower():
-                parts = raw.lower().split("e")
-                nps_val = int(float(parts[0]) * (10 ** int(parts[1])))
-            else:
-                nps_val = int(float(raw))
-
-    # "1e7 histories" (number before keyword)
-    if nps_val is None:
-        num_hist_match = re.search(
-            r"(\d+(?:\.\d+)?(?:[eE]\d+)?)\s*histories",
-            text, re.IGNORECASE,
-        )
-        if num_hist_match:
-            raw = num_hist_match.group(1)
-            if "e" in raw.lower():
-                parts = raw.lower().split("e")
-                nps_val = int(float(parts[0]) * (10 ** int(parts[1])))
-            else:
-                nps_val = int(float(raw))
 
     # ---- detect distances ----
     distances: list[float] | None = None
     start: float | None = None
     stop: float | None = None
     step: float | None = None
+    step_warnings: list[dict] = []
+
+    # Unified unit pattern: cm/厘米/公分/mm/毫米 → convert mm to cm
+    _UNIT_RE = r"(?:cm|厘米|公分|mm|毫米)"
+    _UNIT_FACTOR: dict[str, float] = {"mm": 0.1, "毫米": 0.1}
+
+    def _parse_unit(val: float, unit_raw: str) -> float:
+        u = unit_raw.lower().strip()
+        return val * _UNIT_FACTOR.get(u, 1.0)
+
+    # Step pattern: flexible Chinese/English step/interval expressions
+    # Supports: 每步/步长/每次/每隔/每间隔/间隔/间距/每...运行/每...执行/每...为一次
+    _STEP_RE = (
+        r"(?:每步|步长(?:为)?|step|每间隔|间隔|间距|每隔|每次(?:\s*前进)?|"
+        r"每运行一次前进|每\s*(?:\d+(?:\.\d+)?)\s*" + _UNIT_RE + r"?\s*(?:为一次|运行|执行))"
+        r"\s*[=：:\s]*\s*(-?\d+(?:\.\d+)?)\s*(" + _UNIT_RE + r")?"
+    )
+
+    # Range: "15-20cm", "15到20厘米", "12.5至16.5cm", "from 15 to 20 cm"
+    _RANGE_SEP = r"(?:到|至|[-~—–]|to)"
+    _RANGE_RE = (
+        r"(?:从|距离\s*从|距离)?"  # optional prefix
+        r"(\d+(?:\.\d+)?)\s*(" + _UNIT_RE + r")?\s*"
+        + _RANGE_SEP + r"\s*"
+        r"(\d+(?:\.\d+)?)\s*(" + _UNIT_RE + r")?"
+    )
+
+    # Try range + step combined (single regex)
     range_match = re.search(
-        r"(\d+(?:\.\d+)?)\s*(?:cm|厘米|公分)?\s*(?:到|至|[-~]|to)\s*(\d+(?:\.\d+)?)\s*(?:cm|厘米|公分)?"
-        r".*?(?:每步|步长|step|每间隔)\s*(\d+(?:\.\d+)?)",
+        _RANGE_RE + r".*?" + _STEP_RE,
         text, re.IGNORECASE,
     )
     if range_match:
         start = float(range_match.group(1))
-        stop = float(range_match.group(2))
-        step = float(range_match.group(3))
-    else:
+        if range_match.group(2):
+            start = _parse_unit(start, range_match.group(2))
+        stop = float(range_match.group(3))
+        if range_match.group(4):
+            stop = _parse_unit(stop, range_match.group(4))
+        step = float(range_match.group(5))
+        if range_match.group(6):
+            step = _parse_unit(step, range_match.group(6))
+
+    # Fallback: range only (no step)
+    if start is None:
+        range_only = re.search(_RANGE_RE, text, re.IGNORECASE)
+        if range_only:
+            start = float(range_only.group(1))
+            if range_only.group(2):
+                start = _parse_unit(start, range_only.group(2))
+            stop = float(range_only.group(3))
+            if range_only.group(4):
+                stop = _parse_unit(stop, range_only.group(4))
+
+    # Fallback: step only
+    if step is None:
+        step_only = re.search(_STEP_RE, text, re.IGNORECASE)
+        if step_only:
+            step = float(step_only.group(1))
+            if step_only.group(2):
+                step = _parse_unit(step, step_only.group(2))
+
+    # Fallback: explicit distance list "distances 10 15 20 cm"
+    if start is None:
         list_match = re.search(
-            r"(?:距离|distances?)[：:\s]*([\d\s.,]+?)(?:\s*(?:cm|厘米|公分))",
+            r"(?:距离|distances?)[：:\s]*([\d\s.,]+?)(?:\s*(?:" + _UNIT_RE + r"))",
             text, re.IGNORECASE,
         )
         if list_match:
             nums = re.findall(r"(\d+(?:\.\d+)?)", list_match.group(1))
             if nums:
                 distances = [float(n) for n in nums]
+
+    # Validate step
+    if step is not None and step <= 0:
+        errors.append({
+            "code": "INVALID_DISTANCE_STEP",
+            "message": f"步长/间隔必须为正数，当前值: {step}",
+        })
+        step = None
 
     # ---- detect source radius ----
     source_radius: float | None = None
@@ -255,12 +324,28 @@ def plan_request(
     # Phase 2: determine intent from extracted parameters
     # ==================================================================
 
+    # Detect if text implies a distance sweep (range + step, or explicit list)
+    _has_sweep_signal = bool(
+        re.search(r"sweep|扫描|扫|每隔|每步|step|每次|每间隔|间隔|间距|步长|每\.*运行|每\.*执行", text, re.IGNORECASE)
+        or (start is not None and step is not None)  # parsed range + step
+        or (distances is not None)  # explicit list
+    )
+    _has_distance = bool(
+        re.search(r"距离|distance|\d+\s*cm|\d+\s*厘米|\d+\s*mm|\d+\s*毫米", text, re.IGNORECASE)
+        or start is not None
+        or distances is not None
+    )
+    _is_batch_dir = bool(re.search(r"已有.*txt|批量.*文件|input.dir|目录.*txt|多.*文件.*批量", text, re.IGNORECASE))
+    _is_diagnose = bool(re.search(r"检查.*是否符合|diagnos|inspect", text, re.IGNORECASE))
+
     intent: str = "unknown"
-    if re.search(r"sweep|扫描|扫|每隔|每步|step|prepare.*sweep|sweep.*prepare|prepare.*distance|distance.*prepare", text, re.IGNORECASE) and re.search(r"距离|distance|\d+\s*cm|\d+\s*厘米", text, re.IGNORECASE):
+    if _has_sweep_signal and _has_distance:
         intent = "run_sweep" if execute_requested else "prepare_sweep"
-    elif re.search(r"检查|diagnos|inspect|是否符合", text, re.IGNORECASE):
+    elif _is_diagnose:
         intent = "diagnose_deck"
-    elif re.search(r"批量|batch|多.*文件|目录|input.dir", text, re.IGNORECASE):
+    elif _is_batch_dir:
+        intent = "batch_run_only"
+    elif re.search(r"批量|batch", text, re.IGNORECASE) and not _has_sweep_signal:
         intent = "batch_run_only"
     elif re.search(r"后处理|postprocess|提取.*csv|画图", text, re.IGNORECASE):
         intent = "postprocess_only"
