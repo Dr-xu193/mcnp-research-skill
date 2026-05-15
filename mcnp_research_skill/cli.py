@@ -12,7 +12,7 @@ from .batch import run_batch_pipeline
 from .config.profile import write_default_profiles
 from .diagnostics import run_doctor
 from .mcnp_input.inspection import inspect_deck_file
-from .mcnp_input.patching import patch_deck_file
+from .mcnp_input.patching import patch_deck_file, patch_geb
 from .mcnp_input.diagnostics import diagnose_deck_file, repair_deck_file
 from .models.registry import list_models, resolve_deck_path
 from .workflow.planner import plan_workflow
@@ -298,6 +298,14 @@ def run_command(args: argparse.Namespace) -> dict[str, Any]:
         input_path = _resolve_input(args)
         if not input_path:
             return {"ok": False, "errors": [{"code": "MISSING_INPUT", "message": "Either --input or --builtin-model is required."}]}
+        # GEB-only patch
+        geb_args = getattr(args, "geb", None)
+        if geb_args is not None and len(geb_args) == 3:
+            text = Path(input_path).read_text(encoding="utf-8")
+            pr = patch_geb(text, float(geb_args[0]), float(geb_args[1]), float(geb_args[2]))
+            if pr["ok"]:
+                Path(args.output).write_text(pr["text"], encoding="utf-8")
+            return pr
         sp = getattr(args, "source_position", None)
         if sp is not None:
             sp = [float(v) for v in sp]
@@ -525,6 +533,36 @@ def run_command(args: argparse.Namespace) -> dict[str, Any]:
             kwargs_spe["nuclide_energies"] = nuclide_energies_dict
         return fit_geb_from_spe_files(**kwargs_spe)
 
+    if args.command == "fit-geb-and-patch-deck":
+        kwargs_spe: dict[str, Any] = {"spe_files": args.spe_files}
+        pp = getattr(args, "profile_path", None)
+        pn = getattr(args, "profile_name", None)
+        if pp or pn:
+            from .config.profile import load_active_profile
+            from .geb.spe import _merge_geb_nuclides
+            active = load_active_profile(path=pp, profile_name=pn)
+            geb_cfg = active.get("geb", {})
+            nuclide_energies_dict, _ = _merge_geb_nuclides(geb_cfg)
+            kwargs_spe["nuclide_energies"] = nuclide_energies_dict
+        geb_result = fit_geb_from_spe_files(**kwargs_spe)
+        if not geb_result.get("ok") or not geb_result.get("geb_fit_ok", False):
+            geb_result["stage"] = "fit_failed"
+            return geb_result
+        # Read input deck
+        inp = getattr(args, "input", None)
+        outp = getattr(args, "output", None)
+        if not inp or not outp:
+            return {"ok": False, "errors": [{"code": "MISSING_INPUT_OUTPUT",
+                "message": "--input and --output are required."}]}
+        text = Path(inp).read_text(encoding="utf-8")
+        params = geb_result.get("fitted_params", {})
+        patch_r = patch_geb(text, params.get("A", 0), params.get("B", 0), params.get("C", 0))
+        if patch_r["ok"]:
+            Path(outp).write_text(patch_r["text"], encoding="utf-8")
+        geb_result["patch_result"] = patch_r
+        geb_result["output_path"] = outp
+        return geb_result
+
     if args.command == "origin-export":
         return export_origin_projects(
             target_dir=str(args.target_dir),
@@ -749,6 +787,7 @@ def build_parser() -> argparse.ArgumentParser:
     patch_parser.add_argument("--source-radius", type=float, default=None, dest="source_radius")
     patch_parser.add_argument("--source-ext", type=float, default=0, dest="source_ext")
     patch_parser.add_argument("--source-card-id", type=int, default=None, dest="source_card_id")
+    patch_parser.add_argument("--geb", nargs=3, type=float, default=None, dest="geb")
 
     prep_parser = subparsers.add_parser("prepare-workflow")
     prep_parser.add_argument("--input", default=None, dest="input")
@@ -905,6 +944,13 @@ def build_parser() -> argparse.ArgumentParser:
     spe_parser.add_argument("--spe", action="append", required=True, dest="spe_files")
     spe_parser.add_argument("--profile-path", default=None)
     spe_parser.add_argument("--profile-name", default=None)
+
+    geb_patch_parser = subparsers.add_parser("fit-geb-and-patch-deck")
+    geb_patch_parser.add_argument("--spe", action="append", required=True, dest="spe_files")
+    geb_patch_parser.add_argument("--input", required=True, dest="input")
+    geb_patch_parser.add_argument("--output", required=True, dest="output")
+    geb_patch_parser.add_argument("--profile-path", default=None)
+    geb_patch_parser.add_argument("--profile-name", default=None)
 
     origin_parser = subparsers.add_parser("origin-export")
     origin_parser.add_argument("--target-dir", required=True)

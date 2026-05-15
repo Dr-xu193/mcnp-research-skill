@@ -452,3 +452,65 @@ def patch_deck_file(
         result["ok"] = False; result["errors"].append(str(exc)); result["changed"] = False
     result["input_path"] = str(in_path); result["output_path"] = str(out_path)
     return result
+
+
+# ===================================================================
+# GEB patching
+# ===================================================================
+
+_FT8_RE = re.compile(r"^[fF][tT]8\s+[gG][eE][bB]\s+", re.IGNORECASE)
+_F8_RE = re.compile(r"^[fF]8\s*:", re.IGNORECASE)
+
+
+def patch_geb(
+    text: str,
+    A: float,
+    B: float,
+    C: float,
+    tally_id: int = 8,
+) -> dict[str, Any]:
+    """Write or replace FT8 GEB card in *text*. Only applies to F8 tally decks."""
+    lines = text.split("\n")
+    f8_exists = any(_F8_RE.match(l.strip()) for l in lines if l.strip())
+    if not f8_exists:
+        return {
+            "ok": False, "changed": False, "text": text,
+            "errors": [{"code": "GEB_REQUIRES_F8",
+                "message": "GEB only applies to F8 pulse-height tally."}],
+            "warnings": [], "patches": [],
+        }
+
+    ft8_card = f"FT{tally_id} GEB {A:.5f} {B:.5f} {C:.5f}"
+    changed = False
+    patches: list[dict] = []
+    warnings: list[str] = []
+
+    ft8_indices = [i for i, l in enumerate(lines) if _FT8_RE.match(l.strip())]
+    if ft8_indices:
+        idx = ft8_indices[0]
+        old_line = lines[idx].rstrip("\n")
+        lines[idx] = ft8_card
+        changed = True
+        patches.append({"kind": "ft8_geb", "action": "replace", "line": idx + 1,
+                        "before": old_line.strip(), "after": ft8_card})
+        if len(ft8_indices) > 1:
+            warnings.append(f"Multiple FT8 GEB cards; only first replaced.")
+    else:
+        f8_idx = next((i for i, l in enumerate(lines) if _F8_RE.match(l.strip())), None)
+        if f8_idx is not None:
+            lines.insert(f8_idx + 1, ft8_card)
+            changed = True
+            patches.append({"kind": "ft8_geb", "action": "insert", "line": f8_idx + 2,
+                            "after": ft8_card})
+        else:
+            return {
+                "ok": False, "changed": False, "text": text,
+                "errors": [{"code": "GEB_PATCH_FAILED",
+                    "message": "Cannot locate F8 tally line to insert FT8 GEB."}],
+                "warnings": [], "patches": [],
+            }
+
+    return {
+        "ok": True, "changed": changed, "text": "\n".join(lines),
+        "errors": [], "warnings": warnings, "patches": patches,
+    }

@@ -338,8 +338,39 @@ def plan_request(
     _is_batch_dir = bool(re.search(r"已有.*txt|批量.*文件|input.dir|目录.*txt|多.*文件.*批量", text, re.IGNORECASE))
     _is_diagnose = bool(re.search(r"检查.*是否符合|diagnos|inspect", text, re.IGNORECASE))
 
+    # GEB intent detection: broad aliases
+    _geb_fit_aliases = (
+        r"推出\s*[gG][eE][bB]|推导\s*[gG][eE][bB]|拟合\s*[gG][eE][bB]|计算\s*[gG][eE][bB]|标定\s*[gG][eE][bB]|"
+        r"求\s*[gG][eE][bB]|推出\s*[aA][bB][cC]|提取\s*[aA][bB][cC]|求\s*[aA][bB][cC]|"
+        r"从\s*[sS][pP][eE].*推出|从.*谱.*推出|从.*能谱.*推出|根据.*文件.*推出\s*[gG][eE][bB]|"
+        r"提取半高宽.*拟合|从\s*[sS][pP][eE].*提取|用\s*[sS][pP][eE].*标定|用.*能谱.*标定|"
+        r"fit\s+[gG][eE][bB]|derive\s+[gG][eE][bB]|extract\s+[fF][wW][hH][mM].*fit|"
+        r"compute\s+[gG][eE][bB]|calibrat.*[gG][eE][bB]|"
+        r"算出\s*[fF][tT]8\s*[gG][eE][bB]|标定.*响应|标定.*探测器"
+    )
+    _geb_patch_aliases = (
+        r"写入.*[gG][eE][bB]|写入.*[fF][tT]8|写入.*输入|写进.*输入|"
+        r"替换.*[gG][eE][bB]|更新\s*[gG][eE][bB]|更新\s*[fF][tT]8|"
+        r"patch\s+[gG][eE][bB]|写进\s*[dD]eck|写入.*[dD]eck"
+    )
+
+    _has_geb_fit = bool(re.search(_geb_fit_aliases, text, re.IGNORECASE))
+    _has_geb_patch = bool(re.search(_geb_patch_aliases, text, re.IGNORECASE))
+
     intent: str = "unknown"
-    if _has_sweep_signal and _has_distance:
+
+    # GEB intent takes priority when both fit and sweep are present
+    if _has_geb_fit and _has_sweep_signal and _has_distance:
+        intent = "fit_geb_patch_and_run_sweep"
+    elif _has_geb_fit and _has_geb_patch:
+        intent = "fit_geb_and_patch"
+    elif _has_geb_fit:
+        intent = "fit_geb"
+    elif _has_geb_patch and _has_sweep_signal and _has_distance:
+        intent = "patch_geb"  # user already has ABC, just needs patch + sweep
+    elif _has_geb_patch:
+        intent = "patch_geb"
+    elif _has_sweep_signal and _has_distance:
         intent = "run_sweep" if execute_requested else "prepare_sweep"
     elif _is_diagnose:
         intent = "diagnose_deck"
