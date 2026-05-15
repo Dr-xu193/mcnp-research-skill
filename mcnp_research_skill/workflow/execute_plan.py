@@ -157,6 +157,25 @@ def execute_plan(
         else:
             result["errors"].append({"message": str(e)})
 
+    # ---- failure analysis integration (lightweight) ----
+    if execute and not wf_result.get("ok"):
+        from ..mcnp_output.failure_analyzer import analyze_mcnp_failure
+        output_text = wf_result.get("output_text") or wf_result.get("output")
+        stdout_text = wf_result.get("stdout_text") or wf_result.get("stdout")
+        stderr_text = wf_result.get("stderr_text") or wf_result.get("stderr")
+        rc = wf_result.get("returncode", 1)
+        if output_text or stdout_text or stderr_text:
+            fa = analyze_mcnp_failure(
+                output_text=output_text,
+                stdout_text=stdout_text,
+                stderr_text=stderr_text,
+                returncode=rc,
+                context=plan,
+                front_lines=300,
+                tail_lines=120,
+            )
+            result["failure_analysis"] = fa
+
     return result
 
 

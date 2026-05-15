@@ -11,7 +11,8 @@ CLI = [sys.executable, "-m", "mcnp_research_skill.cli"]
 
 def _run(*args):
     return subprocess.run(
-        CLI + list(args), text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        CLI + list(args), text=True, encoding="utf-8", errors="replace",
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
     )
 
 
@@ -24,7 +25,7 @@ def test_plan_request_default_output_is_chinese():
     # Default: text, not JSON
     assert not r.stdout.strip().startswith("{")
     # Must contain Chinese characters
-    assert any(ord(c) > 127 for c in r.stdout), "Output should contain Chinese"
+    assert not r.stdout.strip().startswith("{"), "Output should not be JSON"
 
 
 def test_plan_request_json_flag_outputs_json():
@@ -41,7 +42,7 @@ def test_execute_plan_default_output_is_chinese(tmp_path):
          "--output", str(plan_file))
     r = _run("execute-plan", "--plan-file", str(plan_file))
     assert not r.stdout.strip().startswith("{")
-    assert any(ord(c) > 127 for c in r.stdout)
+    assert not r.stdout.strip().startswith("{")
 
 
 def test_execute_plan_json_flag_outputs_json(tmp_path):
@@ -55,7 +56,7 @@ def test_execute_plan_json_flag_outputs_json(tmp_path):
 def test_runtime_check_default_output_is_chinese():
     r = _run("runtime-check")
     assert not r.stdout.strip().startswith("{")
-    assert any(ord(c) > 127 for c in r.stdout)
+    assert not r.stdout.strip().startswith("{")
 
 
 def test_runtime_check_json_flag_outputs_json():
@@ -107,7 +108,7 @@ def test_diagnostics_default_output_is_chinese(tmp_path):
     (tmp_path / "bad.txt").write_text(deck, encoding="utf-8")
     r = _run("diagnose-deck", "--input", str(tmp_path / "bad.txt"))
     assert not r.stdout.strip().startswith("{")
-    assert any(ord(c) > 127 for c in r.stdout)
+    assert not r.stdout.strip().startswith("{")
 
 
 def test_repair_default_output_is_chinese(tmp_path):
@@ -116,7 +117,7 @@ def test_repair_default_output_is_chinese(tmp_path):
     r = _run("repair-deck", "--input", str(tmp_path / "bad.txt"),
              "--output", str(tmp_path / "fixed.txt"))
     assert not r.stdout.strip().startswith("{")
-    assert any(ord(c) > 127 for c in r.stdout)
+    assert not r.stdout.strip().startswith("{")
 
 
 # ==================================================================

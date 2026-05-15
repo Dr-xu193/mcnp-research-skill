@@ -949,6 +949,11 @@ def main(argv: list[str] | None = None) -> dict[str, Any]:
 
 def entrypoint(argv: list[str] | None = None) -> int:
     """Console-script entry point — defaults to Chinese user-facing output."""
+    import io
+    try:
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+    except Exception:
+        pass
     parser = build_parser()
     # Parse known args to detect --json before full parse
     if argv is None:

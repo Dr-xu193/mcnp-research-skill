@@ -12,7 +12,8 @@ CLI = [sys.executable, "-m", "mcnp_research_skill.cli"]
 
 def _run(*args):
     return subprocess.run(
-        CLI + list(args), text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        CLI + list(args), text=True, encoding="utf-8", errors="replace",
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
     )
 
 
