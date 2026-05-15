@@ -126,20 +126,20 @@ def execute_plan(
             })
             return result
 
-        # Gate 2: MCNP executable
+        # Gate 2: check BOTH MCNP and MPI before returning (collect all errors)
+        missing_runtime: list[dict] = []
         if not mpi_command and not runtime["mcnp_executable"]["found"] and not mcnp_exe:
-            result["errors"].append({
+            missing_runtime.append({
                 "code": "MCNP_NOT_FOUND",
                 "message": "MCNP executable not found. Install MCNP or specify --mcnp-exe.",
             })
-            return result
-
-        # Gate 3: MPI launcher
         if not mpi_command and not runtime["mpi_launcher"]["found"] and not mpi_launcher:
-            result["errors"].append({
+            missing_runtime.append({
                 "code": "MPI_LAUNCHER_NOT_FOUND",
                 "message": "MPI launcher not found. Install MPI or specify --mpi-launcher.",
             })
+        if missing_runtime:
+            result["errors"].extend(missing_runtime)
             return result
 
     # ---- map plan to workflow ----

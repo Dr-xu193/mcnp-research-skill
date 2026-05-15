@@ -371,7 +371,10 @@ def test_s16_plan_file_workflow(tmp_path):
     p3 = json.loads(r3.stdout)
     assert any(e["code"] == "USER_CONFIRMATION_REQUIRED" for e in p3.get("errors", []) if isinstance(e, dict))
 
-    # mocked execute + confirm
+    # direct call mock test (no subprocess — mock works in-process)
+    from mcnp_research_skill.workflow.execute_plan import execute_plan
+    import json as _json
+    plan_data = _json.loads(plan_file.read_text(encoding="utf-8"))
     with mock.patch(
         "mcnp_research_skill.mcnp_run.runtime._find_mpi_launcher",
         return_value={"found": True, "command": "mpirun", "path": "/usr/bin/mpirun", "source": "PATH"},
@@ -379,9 +382,9 @@ def test_s16_plan_file_workflow(tmp_path):
         "mcnp_research_skill.mcnp_run.runtime._find_mcnp_exe",
         return_value={"found": True, "command": "mcnp5mpi", "path": "/opt/mcnp/mcnp5mpi", "source": "PATH"},
     ), mock.patch("os.cpu_count", return_value=8):
-        r4 = _exec(str(plan_file), execute=True, confirm_user=True)
-        p4 = json.loads(r4.stdout)
-        assert p4["command_preview"] is not None
+        r4 = execute_plan(plan_data, execute=True, confirm_user=True)
+        assert r4["command_preview"] is not None
+        assert "-np 9" in r4["command_preview"]
 
 
 # ==================================================================
