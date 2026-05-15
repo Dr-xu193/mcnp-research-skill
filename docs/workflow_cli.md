@@ -20,6 +20,7 @@
 | `plan-request` | Parse natural-language request into structured plan | No |
 | `execute-plan` | Execute a plan (default dry-run, requires confirm) | **Yes (if --execute)** |
 | `runtime-check` | Check local MPI/MCNP readiness | No |
+| `analyze-run-failure` | Analyze MCNP output/stderr after a failed run | No |
 
 All user-facing commands default to **Chinese text output**.  Use `--json`
 for structured JSON (debugging/automation).
@@ -721,3 +722,57 @@ python -m mcnp_research_skill.cli execute-plan --plan-file plan.json `
 - MPI command source (`user_override` vs `runtime_preflight`) is recorded
 - Does **not** provide MCNP downloads or license workarounds
 - `execute_requested=true` in the plan is **not sufficient** for real execution; `--confirm-user` is always required
+
+---
+
+## MCNP Run Failure Analysis
+
+**Post-run diagnostics** — analyze MCNP output/stderr/stdout after a failed
+execution.  Complements the **pre-run** `diagnose-deck` (static input check).
+
+### Design
+
+- Default scans **first 300 lines** of the MCNP output file
+- Does NOT parse or display the full output (thousands of lines)
+- Falls back to stderr/stdout/tail if front matter is clean but returncode ≠ 0
+- Combines findings with workflow context (model, source strategy, tally, postprocess)
+- Outputs **Chinese diagnostic text** by default; `--json` for automation
+
+### CLI
+
+```powershell
+python -m mcnp_research_skill.cli analyze-run-failure --output o.txt
+python -m mcnp_research_skill.cli analyze-run-failure --output o.txt --stderr err.txt
+python -m mcnp_research_skill.cli analyze-run-failure --output o.txt --context plan.json
+python -m mcnp_research_skill.cli analyze-run-failure --output o.txt --front-lines 300 --json
+```
+
+### Detected issue categories
+
+| Category | Example codes | Suggestion |
+|----------|-------------|-----------|
+| `input_format` | `MCNP_LINE_TOO_LONG`, `MCNP_BAD_CONTINUATION` | Run diagnose-deck / repair-deck |
+| `geometry` | `MCNP_UNKNOWN_SURFACE`, `MCNP_UNKNOWN_CELL` | Check cell/surface cards manually |
+| `material` | `MCNP_XS_LIBRARY_NOT_FOUND`, `MCNP_UNKNOWN_MATERIAL` | Check m card / xsdir |
+| `source` | `MCNP_SOURCE_ERROR`, `MCNP_SDEF_ERROR` | Check SDEF/SI/SP/TR cards |
+| `tally` | `MCNP_TALLY_ERROR` | Check F card / cell reference |
+| `mode` | `MCNP_MODE_PARTICLE_MISMATCH` | Check MODE vs tally/source particles |
+| `runtime` | `MPI_LAUNCHER_NOT_FOUND`, `MCNP_EXECUTABLE_NOT_FOUND` | Run runtime-check |
+| `fatal` | `MCNP_FATAL_ERROR` | Check all of the above |
+
+### Context-aware suggestions
+
+The analyzer considers the user's workflow context:
+
+- `source_strategy=disk_tr1` + source error → checks TR/SI/SP/SDEF, source_radius
+- `postprocess=csv` + tally error → reminds that non-F8 can run but not CSV/plot
+- `model=nai_2x2_template` + geometry error → reminds template is unverified
+- `MCNP5_RSICC 1.14` → applies legacy column/continuation/encoding rules
+
+### Boundaries
+
+- Does **not** simulate or replace the MCNP5 parser
+- Does **not** auto-modify geometry, material, F cards, or source physics
+- Does **not** display full output logs to the user
+- Does **not** provide MCNP downloads, cracks, or license workarounds
+- Does **not** actually execute MCNP/MPI

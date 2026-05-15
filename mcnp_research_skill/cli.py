@@ -23,6 +23,7 @@ from .workflow.run import run_workflow
 from .workflow.sweep import prepare_disk_sweep, prepare_point_sweep, run_disk_sweep, run_point_sweep
 from .mcnp_input.generator import generate_mcnp_inputs
 from .mcnp_output.tally_extractor import extract_tally_csvs
+from .mcnp_output.failure_analyzer import analyze_mcnp_failure_file
 from .mcnp_run.mpi_runner import run_mpi_batch
 from .mcnp_run.runtime import run_runtime_check
 from .workflow.nl_planner import plan_request
@@ -221,6 +222,17 @@ def run_command(args: argparse.Namespace) -> dict[str, Any]:
             mcnp_exe=getattr(args, "mcnp_exe", None),
             mpi_command=getattr(args, "mpi_command", None),
             work_dir=getattr(args, "work_dir", None),
+        )
+
+    if args.command == "analyze-run-failure":
+        return analyze_mcnp_failure_file(
+            output_path=getattr(args, "output", None),
+            stdout_path=getattr(args, "stdout", None),
+            stderr_path=getattr(args, "stderr", None),
+            context_path=getattr(args, "context", None),
+            mcnp_version=getattr(args, "mcnp_version", "mcnp5_rsicc_1_14"),
+            front_lines=getattr(args, "front_lines", 300),
+            tail_lines=getattr(args, "tail_lines", 120),
         )
 
     if args.command == "runtime-check":
@@ -682,6 +694,15 @@ def build_parser() -> argparse.ArgumentParser:
     exec_parser.add_argument("--mpi-command", default=None, dest="mpi_command")
     exec_parser.add_argument("--work-dir", default=None, dest="work_dir")
 
+    failure_parser = subparsers.add_parser("analyze-run-failure")
+    failure_parser.add_argument("--output", default=None, dest="output")
+    failure_parser.add_argument("--stdout", default=None, dest="stdout")
+    failure_parser.add_argument("--stderr", default=None, dest="stderr")
+    failure_parser.add_argument("--context", default=None, dest="context")
+    failure_parser.add_argument("--mcnp-version", default="mcnp5_rsicc_1_14", dest="mcnp_version")
+    failure_parser.add_argument("--front-lines", type=int, default=300, dest="front_lines")
+    failure_parser.add_argument("--tail-lines", type=int, default=120, dest="tail_lines")
+
     runtime_parser = subparsers.add_parser("runtime-check")
     runtime_parser.add_argument("--np", type=int, default=None, dest="np")
     runtime_parser.add_argument("--mpi-launcher", default=None, dest="mpi_launcher")
@@ -945,6 +966,7 @@ def entrypoint(argv: list[str] | None = None) -> int:
         return 0 if payload.get("ok") else 1
 
     # User-facing Chinese output
+    from .mcnp_output.failure_analyzer import analyze_mcnp_failure_file, render_failure_response
     from .workflow.user_output import (
         render_plan_response,
         render_execute_plan_response,
@@ -963,6 +985,8 @@ def entrypoint(argv: list[str] | None = None) -> int:
         text = render_diagnostics_response(payload)
     elif cmd == "repair-deck":
         text = render_repair_response(payload)
+    elif cmd == "analyze-run-failure":
+        text = render_failure_response(payload)
     else:
         # Commands without user-facing renderer → JSON fallback
         sys.stdout.write(json.dumps(payload, ensure_ascii=True, indent=2))
