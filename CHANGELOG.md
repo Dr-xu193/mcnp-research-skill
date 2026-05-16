@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.4.0-beta] — 2026-05-15
+
+### Added
+- **SPE to GEB workflow integration** — fit GEB A/B/C from SPE files and patch FT8 GEB without overwriting the original deck.
+- **GEB patching** — `patch-deck --geb A B C` inserts or replaces `FT8 GEB` only when an F8 pulse-height tally exists.
+- **GEB workflow planning** — natural-language aliases for deriving GEB parameters from SPE/spectrum files, writing GEB cards, and continuing to distance sweep workflows.
+- **GEB execution dispatch** — `execute-plan` supports `fit_geb`, `fit_geb_and_patch`, and `fit_geb_patch_and_run_sweep` dry-run/mock workflows.
+- **Chinese distance/NPS robustness** — decimal distance ranges, decimal steps, `mm -> cm`, `10的7次方`, superscript powers, and keV decimal energies.
+- **Release documentation files** — `AGENTS.md` and `.agents/skills/mcnp-research-pipeline/SKILL.md` restored for skill/test compliance.
+- **Package data metadata** — built-in model fixtures are declared as package data.
+
+### Changed
+- README and package metadata updated for v0.4.0-beta, 748 tests, GEB workflow, and CI-green state.
+- CI runtime tests now aggregate concrete runtime preflight errors such as `MCNP_NOT_FOUND` and `MPI_LAUNCHER_NOT_FOUND`.
+- CLI subprocess tests no longer rely on parent-process mocks for runtime discovery.
+
+### Fixed
+- `execute-plan` no longer drops `MPI_LAUNCHER_NOT_FOUND` when MCNP is also missing.
+- Windows GitHub Actions tests are stable across Python 3.10, 3.11, and 3.12.
+- `fit-geb-from-spe` CLI tests use `--json` when structured output is required.
+
+---
+
 ## [0.3.0] — 2026-05-15
 
 ### Added
