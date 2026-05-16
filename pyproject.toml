@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mcnp-research-skill"
-version = "0.3.0"
-description = "MCNP5 research toolkit with natural-language workflow planner, MCNP5 diagnostics, built-in detector models, and 712 tests."
+version = "0.4.0b1"
+description = "MCNP5 research skill with natural-language workflow planning, diagnostics, GEB integration, runtime preflight, and 748 tests."
 requires-python = ">=3.10"
 dependencies = [
     "numpy>=1.23",
@@ -29,6 +29,9 @@ mcnp-research = "mcnp_research_skill.cli:entrypoint"
 [tool.setuptools.packages.find]
 include = ["mcnp_research_skill*"]
 exclude = ["legacy*", "configs*", "tests*", "docs*"]
+
+[tool.setuptools.package-data]
+"mcnp_research_skill" = ["models/fixtures/*.txt"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
