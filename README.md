@@ -68,11 +68,11 @@ python -m mcnp_research_skill.cli analyze-run-failure --output o.txt
 
 ## 内置模型
 
-| 模型 | 状态 | 参考点 |
-|------|------|--------|
-| `nai_3x3_verified` | **已验证**（A.txt 副本） | 铝壳前 / 晶体中心 / 晶体前（来自 A.txt 几何） |
-| `nai_2x2_template` | 未验证模板 | 铝壳前 / 晶体中心 / 晶体前（模板假设，用户必须验证） |
-| `nai_1x1_template` | 未验证模板 | 同上 |
+| 模型 | 状态 | 参考点 | Model card |
+|------|------|--------|------------|
+| `nai_3x3_verified` | **已验证**（A.txt 副本） | 铝壳前 / 晶体中心 / 晶体前（来自 A.txt 几何） | `docs/models/nai_3x3_verified.md` |
+| `nai_2x2_template` | 未验证模板 | 铝壳前 / 晶体中心 / 晶体前（模板假设，用户必须验证） | `docs/models/nai_2x2_template.md` |
+| `nai_1x1_template` | 未验证模板 | 同上 | `docs/models/nai_1x1_template.md` |
 
 ```powershell
 python -m mcnp_research_skill.cli models list
