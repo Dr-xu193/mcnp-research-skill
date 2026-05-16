@@ -34,6 +34,26 @@ def test_pyproject_declares_runtime_dependencies_and_console_script() -> None:
     assert "legacy*" in package_find["exclude"]
     assert "configs*" in package_find["exclude"]
 
+    package_data = data["tool"]["setuptools"]["package-data"]
+    assert "models/fixtures/*.txt" in package_data["mcnp_research_skill"]
+
+
+def test_builtin_model_fixtures_are_resolvable_from_package() -> None:
+    from mcnp_research_skill.models.registry import MODEL_ENTRIES, resolve_deck_path
+
+    expected = {
+        "nai_3x3_verified": True,
+        "nai_2x2_template": False,
+        "nai_1x1_template": False,
+    }
+    assert set(expected).issubset(MODEL_ENTRIES)
+
+    for model_id, verified in expected.items():
+        path = resolve_deck_path(model_id)
+        assert path.is_file(), model_id
+        assert path.name.endswith(".txt")
+        assert MODEL_ENTRIES[model_id].get("verified", False) is verified
+
 
 def test_repository_hygiene_files_ignore_local_artifacts() -> None:
     gitignore = (PROJECT_ROOT / ".gitignore").read_text(encoding="utf-8")
