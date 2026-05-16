@@ -32,3 +32,31 @@ jobs:
 
       - name: Run tests
         run: python -m pytest -q
+
+  package-smoke:
+    runs-on: windows-2022
+    needs: test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build wheel
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build --wheel
+
+      - name: Install wheel and smoke test CLI
+        shell: pwsh
+        run: |
+          $wheel = Get-ChildItem dist\*.whl | Select-Object -First 1
+          python -m venv .venv-smoke
+          .\.venv-smoke\Scripts\python -m pip install --upgrade pip
+          .\.venv-smoke\Scripts\python -m pip install $wheel.FullName
+          .\.venv-smoke\Scripts\python -m mcnp_research_skill.cli --help
+          .\.venv-smoke\Scripts\python -m mcnp_research_skill.cli --json models list
+          .\.venv-smoke\Scripts\python -m mcnp_research_skill.cli --json models inspect nai_3x3_verified
