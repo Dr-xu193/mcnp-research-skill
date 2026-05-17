@@ -79,6 +79,16 @@ python -m mcnp_research_skill.cli models list
 python -m mcnp_research_skill.cli models inspect nai_3x3_verified
 ```
 
+## Release 文档
+
+| 文档 | 用途 |
+|------|------|
+| `docs/ai_usage_contract.md` | AI 调用规则、文件角色判断、安全执行边界 |
+| `docs/error_codes.md` | 错误码、中文含义、blocking / auto-fixable / 用户下一步 |
+| `docs/real_mcnp_validation.md` | 用户本地真实 MCNP/MPICH 手动验收流程 |
+| `docs/release_v0.4.0_beta.md` | v0.4.0-beta 发布说明 |
+| `docs/final_freeze_checklist.md` | 最终冻结检查清单 |
+
 ## 三类参考点
 
 | 标准名称 | 中文 |
