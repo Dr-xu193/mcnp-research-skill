@@ -1,8 +1,8 @@
 # Original Files
 
-This folder contains the original standalone script for users who do not want to use the packaged `mcnp_research_skill` workflow.
+**This repository provides two choices: `mcnp_research_skill` is mainly designed for AI assistants to call safely, while `original_files/auto.py` is the simpler legacy Python GUI option for users who prefer to run one script directly. Choose the skill for AI-guided planning, diagnostics, dry-run safety, and structured outputs; choose `auto.py` if you want fewer workflow steps and are comfortable configuring MCNP/MPI manually.**
 
-中文说明：这个文件夹是“原始文件”备用入口。它不是 skill 的一部分，也不会被 `mcnp_research_skill` CLI 自动调用。
+中文说明：本仓库提供两种使用方式：`mcnp_research_skill` 主要是给 AI 调用的 workflow skill；`original_files/auto.py` 是原始独立 Python GUI 脚本，适合不想使用 skill、或者觉得 skill 流程太复杂、想直接运行一个 `.py` 文件的用户。两者都围绕 MCNP 工作流服务，但定位不同，用户可以按自己的习惯选择。
 
 ## Files
 
