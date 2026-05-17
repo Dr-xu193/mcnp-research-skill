@@ -3,7 +3,7 @@
 {"id":"zh_decimal_step_no_plot","text":"用三英寸的NaI探测器，10的7次方粒子数，距离从12.5-16.5cm，每次2cm，批量运行，能量为563.32kev，不画图","expected":{"model":"nai_3x3_verified","source_energy":0.56332,"nps":10000000,"distance":{"start":12.5,"stop":16.5,"step":2},"postprocess":"none"}}
 {"id":"zh_single_point_kev_plot","text":"用3英寸NaI，生成一个能量为63.6keV的点源，距离NaI晶体前表面10cm，粒子数10的6次方，生成csv并画图","expected":{"model":"nai_3x3_verified","source_energy":0.0636,"nps":1000000,"postprocess":"csv-and-plot"}}
 {"id":"zh_ambiguous_detector_distance","text":"使用3英寸NaI探测器，距离探测器10到20厘米，每步5厘米，粒子数1e6，生成CSV并画图","expected":{"model":"nai_3x3_verified","nps":1000000,"distance":{"start":10,"stop":20,"step":5}},"expected_errors":["UNKNOWN_REFERENCE_POINT","MISSING_SOURCE_ENERGY"]}
-{"id":"zh_activity_not_nps","text":"Cs-137活度1e6 Bq，距离晶体前表面10cm，跑CSV","expected":{"source_energy":0.662},"expected_errors":["ACTIVITY_NORMALIZATION_UNSUPPORTED"]}
+{"id":"zh_activity_not_nps","text":"用3英寸NaI，Cs-137活度1e6 Bq，距离NaI晶体前表面10cm，跑CSV","expected":{"model":"nai_3x3_verified","source_energy":0.662},"expected_errors":["ACTIVITY_NORMALIZATION_UNSUPPORTED"]}
 {"id":"en_3inch_prepare_sweep","text":"3 inch NaI, Cs-137 point source, 10 to 20 cm from crystal front, step 5 cm, nps 1e6, csv only","expected":{"model":"nai_3x3_verified","source_energy":0.662,"nps":1000000,"distance":{"start":10,"stop":20,"step":5},"postprocess":"csv"}}
 {"id":"zh_geb_broad_alias_missing_files","text":"根据我给你的文件推出geb参数，然后做10-15cm、每步5cm的运行","expected":{"intent":"fit_geb_patch_and_run_sweep","distance":{"start":10,"stop":15,"step":5}}}
 {"id":"zh_geb_spe_alias_missing_deck","text":"根据我给你的spe文件推出geb的参数，然后做10-15cm、每步5cm的运行","expected":{"intent":"fit_geb_patch_and_run_sweep","distance":{"start":10,"stop":15,"step":5}}}
